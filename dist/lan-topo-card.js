@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.1.1";
+export const VERSION = "0.1.2";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -836,9 +836,9 @@ async function defineCard() {
       // Tên: YAML port_names → thiết bị integration tìm được → comment của cổng → tên cổng.
       const label = meta.name || p.device || p.comment || p.name;
       const ip = meta.ip || (meta.name ? null : p.deviceIp);
-      // Màu viền đã cho biết tốc độ link → chỉ ghi tốc độ khi dòng phụ còn chỗ (không có IP).
-      const speed = p.linked ? (ip ? "" : speedLabel(p.speedMbps)) : T.no_link;
-      const sub = [label !== p.name ? p.name : null, ip, speed].filter(Boolean).join(" · ");
+      // Tốc độ link là chip riêng cạnh tên (không bị cắt "…" như dòng phụ).
+      const chip = p.linked ? speedLabel(p.speedMbps) : T.no_link;
+      const sub = [label !== p.name ? p.name : null, ip].filter(Boolean).join(" · ");
       return html`<div
         class="port ${p.linked ? "" : "down"} ${p.entity ? "clickable" : ""}"
         style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;--c:${color}"
@@ -847,6 +847,7 @@ async function defineCard() {
         <div class="pmain">
           ${meta.icon ? html`<ha-icon .icon=${meta.icon}></ha-icon>` : ""}
           <span class="pname">${label}</span>
+          ${chip ? html`<span class="speed">${chip}</span>` : ""}
           ${p.poe ? html`<ha-icon class="poe" icon="mdi:flash"></ha-icon>` : ""}
         </div>
         <div class="prate">↓${formatRate(p.txBps, locale)}</div>
@@ -1156,6 +1157,17 @@ async function defineCard() {
         }
         .port ha-icon {
           --mdc-icon-size: 14px;
+        }
+        .port .speed {
+          flex: none;
+          font-size: 0.62rem;
+          font-weight: 600;
+          line-height: 1;
+          padding: 2px 4px;
+          border-radius: 5px;
+          color: var(--c);
+          background: color-mix(in srgb, var(--c) 18%, transparent);
+          border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
         }
         .port .poe {
           color: #fbbf24;
