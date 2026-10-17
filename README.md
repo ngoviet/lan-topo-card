@@ -79,7 +79,7 @@ edges:
 | `title`, `subtitle` | — | Header text |
 | `nodes` | **required** | Devices, see below |
 | `edges` | `[]` | Links between nodes. The topology must be a tree (one parent per node) |
-| `expanded` | `[]` | Node ids opened on load |
+| `expanded` | `[]` | Node ids opened on load, or `all` (every node with ports; implies `expand: multi`) |
 | `expand` | `single` | `single`: opening a switch closes the others; `multi`: keep several open |
 | `layout` | `auto` | `auto`, `horizontal`, `vertical` |
 | `breakpoint` | `600` | Below this card width (px), `auto` uses the vertical layout |
@@ -101,7 +101,7 @@ edges:
 | `count` | Draws a stacked group with a `×N` badge (e.g. several modems) |
 | `entity` | Tapping a node without ports opens this entity |
 | `ports` | Port adapter, see below. Nodes with ports can be opened |
-| `port_names` | Per-port label: `"name \| ip"`, `{ name, ip, icon, show }` or `false` to hide |
+| `port_names` | Per-port label: `"name \| ip"`, `{ name, ip, icon, show }` or `false` to hide. Without a name the card uses the `device` / `device_ip` attributes of the link entity (routeros_ha: LLDP neighbor or DHCP lease comment), then the port comment |
 | `show_all_ports` | Per-node version of the card option |
 
 ### Port adapters

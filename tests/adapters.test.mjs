@@ -114,6 +114,15 @@ test("readPort routeros: đổi Mbit/s → bit/s, tốc độ link từ speed_mb
   assert.equal(down.speedMbps, null);
 });
 
+test("readPort: tên thiết bị tự động từ thuộc tính device / device_ip của link", () => {
+  const p = readPort(
+    { "binary_sensor.x_link": st("on", { port: "ether8", speed_mbps: 2500, device: "Nas - N100", device_ip: "192.168.10.12" }) },
+    { name: "ether8", link: "binary_sensor.x_link" },
+  );
+  assert.equal(p.device, "Nas - N100");
+  assert.equal(p.deviceIp, "192.168.10.12");
+});
+
 test("adapter netgear_plus: cổng theo tiền tố, MB/s → bit/s, PoE chỉ đọc", () => {
   const defs = discoverNetgearPorts({ states }, { prefix: "gs108pe" });
   assert.deepEqual(defs.map((d) => d.name), ["1", "5"]);

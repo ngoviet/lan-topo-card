@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -202,6 +202,15 @@ export function normalizeConfig(config) {
   return { nodes, edges, roots, children, parentOf };
 }
 
+/** Node mở sẵn khi tải: danh sách id, hoặc "all" = mọi node có cổng. */
+export function initialExpanded(topo, expanded, multi) {
+  const ids =
+    expanded === "all"
+      ? [...topo.nodes.values()].filter((n) => n.ports).map((n) => n.id)
+      : asList(expanded).map(String).filter((id) => topo.nodes.has(id));
+  return new Set(multi ? ids : ids.slice(0, 1));
+}
+
 /** Cổng của node đang dùng để nối với node khác → ẩn khỏi cột thiết bị. */
 export function linkPortsOf(topo, nodeId) {
   const used = new Set();
@@ -348,6 +357,9 @@ export function readPort(states, def) {
     poe: def.poe ? isOn(states, def.poe) : null,
     disabled: linkSt?.attributes?.disabled === true,
     comment: linkSt?.attributes?.comment || null,
+    // Thiết bị đang cắm (routeros_ha: LLDP neighbor / DHCP lease có comment) — tên tự động.
+    device: linkSt?.attributes?.device || null,
+    deviceIp: linkSt?.attributes?.device_ip || null,
     entity: def.info || def.rx || def.link || def.tx || null,
     entities: [def.link, def.rx, def.tx, def.poe, speedEntity ? def.speed : null].filter(Boolean),
   };
@@ -631,8 +643,8 @@ async function defineCard() {
       const topo = normalizeConfig(config);
       this._topo = topo;
       this._config = config;
-      const init = asList(config.expanded).map(String).filter((id) => topo.nodes.has(id));
-      this._expanded = new Set(config.expand === "multi" ? init : init.slice(0, 1));
+      this._multi = config.expand === "multi" || config.expanded === "all";
+      this._expanded = initialExpanded(topo, config.expanded, this._multi);
       this._discovered = null;
     }
 
@@ -710,7 +722,7 @@ async function defineCard() {
     }
 
     _toggle(node) {
-      const next = new Set(this._config.expand === "multi" ? this._expanded : []);
+      const next = new Set(this._multi ? this._expanded : []);
       if (this._expanded.has(node.id)) next.delete(node.id);
       else next.add(node.id);
       this._expanded = next;
@@ -821,10 +833,12 @@ async function defineCard() {
       const node = this._topo.nodes.get(b.nodeId);
       const meta = node.portNames[p.name] || {};
       const color = speedColor(p.speedMbps, p.linked !== false);
-      const label = meta.name || p.comment || p.name;
+      // Tên: YAML port_names → thiết bị integration tìm được → comment của cổng → tên cổng.
+      const label = meta.name || p.device || p.comment || p.name;
+      const ip = meta.ip || (meta.name ? null : p.deviceIp);
       // Màu viền đã cho biết tốc độ link → chỉ ghi tốc độ khi dòng phụ còn chỗ (không có IP).
-      const speed = p.linked ? (meta.ip ? "" : speedLabel(p.speedMbps)) : T.no_link;
-      const sub = [meta.name || p.comment ? p.name : null, meta.ip, speed].filter(Boolean).join(" · ");
+      const speed = p.linked ? (ip ? "" : speedLabel(p.speedMbps)) : T.no_link;
+      const sub = [label !== p.name ? p.name : null, ip, speed].filter(Boolean).join(" · ");
       return html`<div
         class="port ${p.linked ? "" : "down"} ${p.entity ? "clickable" : ""}"
         style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;--c:${color}"

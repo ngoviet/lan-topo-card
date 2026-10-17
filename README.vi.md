@@ -74,7 +74,7 @@ edges:
 | `title`, `subtitle` | — | Tiêu đề |
 | `nodes` | **bắt buộc** | Thiết bị, xem bên dưới |
 | `edges` | `[]` | Đường nối giữa các node. Topo phải là cây (mỗi node một node cha) |
-| `expanded` | `[]` | Id node mở sẵn khi tải |
+| `expanded` | `[]` | Id node mở sẵn khi tải, hoặc `all` (mọi node có cổng; tự bật `expand: multi`) |
 | `expand` | `single` | `single`: mở switch này thì đóng switch khác; `multi`: mở nhiều cái cùng lúc |
 | `layout` | `auto` | `auto`, `horizontal`, `vertical` |
 | `breakpoint` | `600` | Card hẹp hơn mức này (px) thì `auto` dùng bố cục dọc |
@@ -96,7 +96,7 @@ edges:
 | `count` | Vẽ thành chồng nhiều lớp kèm huy hiệu `×N` (vd nhiều modem) |
 | `entity` | Bấm node không có cổng thì mở entity này |
 | `ports` | Adapter cổng, xem bên dưới. Node có cổng thì bấm để mở được |
-| `port_names` | Tên từng cổng: `"tên \| ip"`, `{ name, ip, icon, show }`, hoặc `false` để ẩn |
+| `port_names` | Tên từng cổng: `"tên \| ip"`, `{ name, ip, icon, show }`, hoặc `false` để ẩn. Không ghi tên thì card dùng thuộc tính `device` / `device_ip` của entity link (routeros_ha: LLDP neighbor hoặc comment DHCP lease), rồi tới comment của cổng |
 | `show_all_ports` | Như tuỳ chọn của card nhưng chỉ cho node này |
 
 ### Adapter cổng

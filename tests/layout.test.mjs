@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   normalizeConfig,
   normalizePortNames,
+  initialExpanded,
   buildTree,
   layoutHorizontal,
   layoutVertical,
@@ -149,4 +150,15 @@ test("layoutVertical: thụt lề theo tầng, xếp dọc không chồng", () =
 test("linkPath: cong ngang, gấp khúc dọc", () => {
   assert.equal(linkPath({ x1: 0, y1: 10, x2: 100, y2: 50 }, "horizontal"), "M0 10C50 10 50 50 100 50");
   assert.match(linkPath({ x1: 10, y1: 0, x2: 40, y2: 80 }, "vertical"), /^M10 0V72Q10 80 18 80H40$/);
+});
+
+test("initialExpanded: all = mọi node có cổng; single chỉ giữ node đầu", () => {
+  const topo = normalizeConfig({
+    nodes: [{ id: "a" }, { id: "b", ports: [] }, { id: "c", ports: [] }],
+    edges: [{ from: "a", to: "b" }, { from: "a", to: "c" }],
+  });
+  assert.deepEqual([...initialExpanded(topo, "all", true)], ["b", "c"]);
+  assert.deepEqual([...initialExpanded(topo, ["c", "b", "x"], false)], ["c"]);
+  assert.deepEqual([...initialExpanded(topo, ["c", "b"], true)], ["c", "b"]);
+  assert.deepEqual([...initialExpanded(topo, undefined, false)], []);
 });
