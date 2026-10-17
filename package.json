@@ -1,0 +1,14 @@
+{
+  "name": "lan-topo-card",
+  "version": "0.1.0",
+  "description": "Home Assistant Lovelace card: live LAN topology (Internet → router → switches → ports) with traffic-driven animated links",
+  "type": "module",
+  "main": "dist/lan-topo-card.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT",
+  "author": "ngoviet",
+  "repository": "github:ngoviet/lan-topo-card",
+  "private": true
+}

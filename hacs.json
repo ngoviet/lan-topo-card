@@ -1,0 +1,6 @@
+{
+  "name": "LAN Topo Card",
+  "filename": "lan-topo-card.js",
+  "homeassistant": "2024.8.0",
+  "render_readme": true
+}
