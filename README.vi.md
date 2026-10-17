@@ -175,6 +175,7 @@ sort: name        # name | signal (yếu trước) | speed
 | `group_by` | `ap` | Nhóm theo `ap`, `ssid` hoặc `band` |
 | `sort` | `name` | `name`, `signal` (sóng yếu trước) hoặc `speed` |
 | `ssid`, `band` | — | Bộ lọc ban đầu |
+| `collapse` | `auto` | `auto`: card hẹp hơn `breakpoint` (600 px, điện thoại) thì các nhóm thu gọn sẵn; `true` / `false`: luôn thu gọn / luôn mở. Chạm tiêu đề nhóm để mở/đóng |
 | `title`, `language` | `Wi-Fi`, theo HA | |
 
 ## Màu

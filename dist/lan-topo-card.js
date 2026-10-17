@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.3.1";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -654,6 +654,7 @@ const STRINGS = {
     all: "Tất cả",
     busy: "bận",
     same_channel: (ch, who) => `trùng kênh ${ch} với ${who}`,
+    weak: (n) => `${n} máy sóng yếu`,
     no_entity: "không thấy entity",
   },
   en: {
@@ -672,6 +673,7 @@ const STRINGS = {
     all: "All",
     busy: "busy",
     same_channel: (ch, who) => `same channel ${ch} as ${who}`,
+    weak: (n) => `${n} weak signal`,
     no_entity: "entity not found",
   },
 };
@@ -1604,11 +1606,46 @@ async function defineCard() {
    */
   class LanWifiCard extends LitElement {
     static get properties() {
-      return { hass: { attribute: false }, _config: { state: true }, _ssid: { state: true }, _band: { state: true } };
+      return {
+        hass: { attribute: false },
+        _config: { state: true },
+        _ssid: { state: true },
+        _band: { state: true },
+        _narrow: { state: true },
+        _toggled: { state: true },
+      };
     }
 
     static getStubConfig() {
       return { entity: "sensor.aruba_instant_clients" };
+    }
+
+    connectedCallback() {
+      super.connectedCallback();
+      // Khung hẹp (điện thoại) → thu gọn từng nhóm, chạm tiêu đề để mở.
+      this._ro = new ResizeObserver(() => {
+        const narrow = this.clientWidth > 0 && this.clientWidth < (this._config?.breakpoint ?? 600);
+        if (narrow !== this._narrow) this._narrow = narrow;
+      });
+      this._ro.observe(this);
+    }
+
+    disconnectedCallback() {
+      super.disconnectedCallback();
+      this._ro?.disconnect();
+    }
+
+    _isOpen(name) {
+      const mode = this._config.collapse ?? "auto";
+      const base = mode === true ? false : mode === false ? true : !this._narrow;
+      return this._toggled?.has(name) ? !base : base;
+    }
+
+    _toggle(name) {
+      const next = new Set(this._toggled || []);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      this._toggled = next;
     }
 
     setConfig(config) {
@@ -1616,6 +1653,7 @@ async function defineCard() {
       this._config = config;
       this._ssid = config.ssid ?? null;
       this._band = config.band ?? null;
+      this._toggled = new Set();
     }
 
     getCardSize() {
@@ -1667,15 +1705,19 @@ async function defineCard() {
     }
 
     _renderGroup(group, ap, overlap, T) {
-      return html`<div class="grp">
-        <div class="ghead">
+      const open = this._isOpen(group.name);
+      const weak = group.clients.filter((c) => c.quality === "poor" || (c.quality !== "good" && signalBars(c.signal) <= 1)).length;
+      return html`<div class="grp ${open ? "" : "closed"}">
+        <div class="ghead" @click=${() => this._toggle(group.name)}>
+          <ha-icon class="chev" icon=${open ? "mdi:chevron-down" : "mdi:chevron-right"}></ha-icon>
           <ha-icon icon=${ap ? "mdi:access-point" : "mdi:wifi"}></ha-icon>
           <span class="gname">${group.name}</span>
           <span class="gsub">${T.clients(group.clients.length)}${ap?.ip ? ` · ${ap.ip}` : ""}</span>
           ${ap ? (ap.radios || []).map((r) => this._radio(r, T)) : ""}
           ${(overlap || []).map((o) => html`<span class="warn"><ha-icon icon="mdi:alert"></ha-icon>${o.band} GHz · ${T.same_channel(o.channel, o.with.join(", "))}</span>`)}
+          ${weak ? html`<span class="weak">${T.weak(weak)}</span>` : ""}
         </div>
-        <div class="clients">${group.clients.map((c) => this._client(c))}</div>
+        ${open ? html`<div class="clients">${group.clients.map((c) => this._client(c))}</div>` : ""}
       </div>`;
     }
 
@@ -1788,6 +1830,22 @@ async function defineCard() {
           align-items: center;
           gap: 4px 10px;
           margin-bottom: 8px;
+          cursor: pointer;
+          user-select: none;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .grp.closed .ghead {
+          margin-bottom: 0;
+        }
+        .ghead ha-icon.chev {
+          --mdc-icon-size: 16px;
+          color: var(--ltc-dim);
+          filter: none;
+          margin-right: -6px;
+        }
+        .weak {
+          font-size: 0.72rem;
+          color: #f87171;
         }
         .ghead ha-icon {
           --mdc-icon-size: 18px;

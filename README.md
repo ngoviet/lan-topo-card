@@ -181,6 +181,7 @@ sort: name        # name | signal (weakest first) | speed
 | `group_by` | `ap` | Group clients by `ap`, `ssid` or `band` |
 | `sort` | `name` | `name`, `signal` (weakest first) or `speed` |
 | `ssid`, `band` | — | Initial filter |
+| `collapse` | `auto` | `auto`: groups start collapsed when the card is narrower than `breakpoint` (600 px, phones); `true` / `false`: always collapsed / open. Tap a group header to toggle |
 | `title`, `language` | `Wi-Fi`, HA language | |
 
 ## Colors
