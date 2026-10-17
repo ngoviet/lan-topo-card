@@ -101,7 +101,7 @@ edges:
 | `count` | Draws a stacked group with a `×N` badge (e.g. several modems) |
 | `entity` | Tapping a node without ports opens this entity |
 | `ports` | Port adapter, see below. Nodes with ports can be opened |
-| `port_names` | Per-port label: `"name \| ip"`, `{ name, ip, icon, show }` or `false` to hide. Without a name the card uses the `device` / `device_ip` attributes of the link entity (routeros_ha: LLDP neighbor or DHCP lease comment), then the port comment |
+| `port_names` | Per-port label: `"name \| ip"`, `{ name, ip, icon, show, poe }` (`poe: false` hides ⚡) or `false` to hide. Without a name the card uses the `device` / `device_ip` attributes of the link entity (routeros_ha: LLDP neighbor or DHCP lease comment), then the port comment |
 | `show_all_ports` | Per-node version of the card option |
 
 ### Port adapters

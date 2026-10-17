@@ -230,3 +230,12 @@ test("portLabel: nhãn ngắn trên ô cổng", async () => {
   assert.equal(portLabel("3"), "3");
   assert.equal(portLabel("wan"), "wan");
 });
+
+test("poeOn: chỉ khi PoE bật và có link, port_names poe:false tắt hẳn", async () => {
+  const { poeOn } = await import("../dist/lan-topo-card.js");
+  assert.equal(poeOn({ poe: true, linked: true }), true);
+  assert.equal(poeOn({ poe: true, linked: false }), false); // cổng trống
+  assert.equal(poeOn({ poe: false, linked: true }), false);
+  assert.equal(poeOn({ poe: null, linked: true }), false); // switch không có PoE
+  assert.equal(poeOn({ poe: true, linked: true }, { poe: false }), false); // uplink
+});

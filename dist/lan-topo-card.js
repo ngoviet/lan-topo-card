@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.2.1";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -331,6 +331,14 @@ export function portLabel(name) {
   const m = n.match(/(\d+)$/);
   if (!m) return n.slice(0, 4);
   return /sfp|qsfp/i.test(n) ? `S${m[1]}` : m[1];
+}
+
+/**
+ * ⚡ chỉ khi cổng đang cấp PoE thật: công tắc PoE bật VÀ có link (netgear_plus báo "bật PoE"
+ * cả ở cổng trống). `port_names: { 8: { poe: false } }` tắt hẳn (vd cổng uplink).
+ */
+export function poeOn(port, meta = {}) {
+  return meta.poe !== false && port.poe === true && port.linked === true;
 }
 
 /** Đọc giá trị hiện tại của 1 cổng. rx = switch nhận vào cổng, tx = switch gửi ra cổng. */
@@ -860,7 +868,7 @@ async function defineCard() {
           ${meta.icon ? html`<ha-icon .icon=${meta.icon}></ha-icon>` : ""}
           <span class="pname">${label}</span>
           ${chip ? html`<span class="speed">${chip}</span>` : ""}
-          ${p.poe ? html`<ha-icon class="poe" icon="mdi:flash"></ha-icon>` : ""}
+          ${poeOn(p, meta) ? html`<ha-icon class="poe" icon="mdi:flash"></ha-icon>` : ""}
         </div>
         <div class="prate">↓${formatRate(p.txBps, locale)}</div>
         <div class="psub">${sub}</div>
@@ -1382,7 +1390,7 @@ async function defineCard() {
         .join("\n");
       const cls = p.disabled ? "dis" : p.linked ? (busy ? "on busy" : "on") : "off";
       return html`<div class="pt ${cls}" style="--c:${color}" title=${tip} @click=${() => this._moreInfo(p.entity)}>
-        ${portLabel(p.name)}${p.poe ? html`<ha-icon icon="mdi:flash"></ha-icon>` : ""}
+        ${portLabel(p.name)}${poeOn(p, meta) ? html`<ha-icon icon="mdi:flash"></ha-icon>` : ""}
       </div>`;
     }
 

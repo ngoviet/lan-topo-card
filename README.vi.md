@@ -96,7 +96,7 @@ edges:
 | `count` | Vẽ thành chồng nhiều lớp kèm huy hiệu `×N` (vd nhiều modem) |
 | `entity` | Bấm node không có cổng thì mở entity này |
 | `ports` | Adapter cổng, xem bên dưới. Node có cổng thì bấm để mở được |
-| `port_names` | Tên từng cổng: `"tên \| ip"`, `{ name, ip, icon, show }`, hoặc `false` để ẩn. Không ghi tên thì card dùng thuộc tính `device` / `device_ip` của entity link (routeros_ha: LLDP neighbor hoặc comment DHCP lease), rồi tới comment của cổng |
+| `port_names` | Tên từng cổng: `"tên \| ip"`, `{ name, ip, icon, show, poe }` (`poe: false` ẩn ⚡), hoặc `false` để ẩn. Không ghi tên thì card dùng thuộc tính `device` / `device_ip` của entity link (routeros_ha: LLDP neighbor hoặc comment DHCP lease), rồi tới comment của cổng |
 | `show_all_ports` | Như tuỳ chọn của card nhưng chỉ cho node này |
 
 ### Adapter cổng
