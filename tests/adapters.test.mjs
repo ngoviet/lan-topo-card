@@ -220,3 +220,13 @@ test("visiblePorts: chỉ cổng có link, ẩn cổng nối switch, tôn trọn
   node.portNames.ether4 = { hide: true };
   assert.deepEqual(visiblePorts(node, ports, hidden).map((p) => p.name), []);
 });
+
+test("portLabel: nhãn ngắn trên ô cổng", async () => {
+  const { portLabel } = await import("../dist/lan-topo-card.js");
+  assert.equal(portLabel("ether7"), "7");
+  assert.equal(portLabel("ether16"), "16");
+  assert.equal(portLabel("sfp-sfpplus1"), "S1");
+  assert.equal(portLabel("qsfp28-1-1"), "S1");
+  assert.equal(portLabel("3"), "3");
+  assert.equal(portLabel("wan"), "wan");
+});

@@ -132,6 +132,28 @@ cố định (`1G`, `100M`, `2500`).
 
 *Xuống* luôn là chiều đi ra xa Internet. Cổng ghi ở `from_port`/`to_port` được ẩn khỏi cột thiết bị.
 
+## LAN Ports Card
+
+Cùng file còn đăng ký **`custom:lan-ports-card`**: lưới cổng switch gọn, mỗi thiết bị một hàng, dùng chung adapter
+cổng. Ô tô màu theo tốc độ link; viền đỏ = không có link, viền nét đứt = cổng tắt, viền sáng = đang có lưu lượng,
+⚡ = PoE. Rê chuột (hoặc giữ) để xem thiết bị, IP, tốc độ, lưu lượng; chạm để mở entity của cổng.
+
+```yaml
+type: custom:lan-ports-card
+title: Cổng switch
+devices:
+  - { name: CCR2004 · router, ports: { adapter: routeros, device: CCR2004 } }
+  - { name: CRS326 · 24 cổng, ports: { adapter: routeros, device: CRS326 } }
+  - name: GS108PE
+    ports: { adapter: netgear_plus, prefix: gs108pe }
+    port_names: { 2: { name: Camera 1 } }
+```
+
+| Khoá | Ý nghĩa |
+|---|---|
+| `devices` | **Bắt buộc.** Mỗi thiết bị có `name`, `ports` (adapter, như node) và `port_names` tuỳ chọn (`false` = ẩn cổng) |
+| `title`, `legend`, `idle_kbps`, `language` | Như LAN Topo Card |
+
 ## Màu
 
 | 10 Gbps | 2,5 Gbps | 1 Gbps | 100 Mbps | 10 Mbps | không có link |

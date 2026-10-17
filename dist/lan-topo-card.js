@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.1.2";
+export const VERSION = "0.2.0";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -325,6 +325,14 @@ export function discoverPorts(ctx, node) {
   throw new Error(`lan-topo-card: adapter "${adapter}" không hỗ trợ (routeros | netgear_plus | manual)`);
 }
 
+/** Nhãn ngắn trên ô cổng: ether7 → "7", sfp-sfpplus1 → "S1", "3" → "3", wan → "wan". */
+export function portLabel(name) {
+  const n = String(name ?? "");
+  const m = n.match(/(\d+)$/);
+  if (!m) return n.slice(0, 4);
+  return /sfp|qsfp/i.test(n) ? `S${m[1]}` : m[1];
+}
+
 /** Đọc giá trị hiện tại của 1 cổng. rx = switch nhận vào cổng, tx = switch gửi ra cổng. */
 export function readPort(states, def) {
   const linkSt = stateOf(states, def.link);
@@ -576,6 +584,8 @@ const STRINGS = {
     no_link: "Không có link",
     poe: "PoE",
     moving: "đường chạy = có lưu lượng",
+    disabled: "cổng tắt",
+    traffic: "sáng viền = có lưu lượng",
   },
   en: {
     ports_up: (n, m) => `${n}/${m} ports up`,
@@ -587,6 +597,8 @@ const STRINGS = {
     no_link: "No link",
     poe: "PoE",
     moving: "moving line = traffic",
+    disabled: "port disabled",
+    traffic: "glowing edge = traffic",
   },
 };
 
@@ -1250,6 +1262,269 @@ async function defineCard() {
     }
   }
 
+  /**
+   * lan-ports-card — lưới cổng gọn: mỗi switch một hàng ô nhỏ, màu theo tốc độ link.
+   * Cùng adapter với lan-topo-card (routeros / netgear_plus / khai báo tay). Chỉ đọc.
+   */
+  class LanPortsCard extends LitElement {
+    static get properties() {
+      return { hass: { attribute: false }, _config: { state: true } };
+    }
+
+    static getStubConfig() {
+      return { title: "Ports", devices: [{ name: "Router", ports: { adapter: "routeros", device: "Router" } }] };
+    }
+
+    setConfig(config) {
+      if (!config || !Array.isArray(config.devices) || !config.devices.length) {
+        throw new Error("lan-ports-card: cần khai báo `devices`");
+      }
+      this._devices = config.devices.map((d, i) => {
+        if (!d || !d.ports) throw new Error(`lan-ports-card: device ${i + 1} cần \`ports\``);
+        return { ...d, name: d.name ?? `#${i + 1}`, portNames: normalizePortNames(d.port_names) };
+      });
+      this._config = config;
+      this._discovered = null;
+    }
+
+    getCardSize() {
+      return 1 + this._devices.length;
+    }
+
+    getGridOptions() {
+      return { columns: "full", min_columns: 6 };
+    }
+
+    shouldUpdate(changed) {
+      if (changed.size > 1 || !changed.has("hass")) return true;
+      const old = changed.get("hass");
+      if (!old || !this._tracked) return true;
+      if (old.entities !== this.hass.entities || old.devices !== this.hass.devices) return true;
+      for (const id of this._tracked) if (old.states[id] !== this.hass.states[id]) return true;
+      return false;
+    }
+
+    _discover() {
+      const h = this.hass;
+      const now = Date.now();
+      const d = this._discovered;
+      if (d && d.entities === h.entities && d.devices === h.devices && now - d.at < (d.empty ? 5000 : 60000)) return d.list;
+      let empty = false;
+      const list = this._devices.map((dev) => {
+        try {
+          const defs = discoverPorts({ entities: h.entities, devices: h.devices, states: h.states }, dev);
+          if (!defs.length) empty = true;
+          return { defs, error: defs.length ? null : "no_device" };
+        } catch (err) {
+          return { defs: [], error: err.message };
+        }
+      });
+      this._discovered = { entities: h.entities, devices: h.devices, at: now, list, empty };
+      return list;
+    }
+
+    _moreInfo(entityId) {
+      if (!entityId) return;
+      this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
+    }
+
+    render() {
+      if (!this._config || !this.hass) return html``;
+      const cfg = this._config;
+      const T = strings(cfg.language || this.hass.locale?.language || this.hass.language);
+      const lang = T === STRINGS.vi ? "vi" : "en";
+      const locale = this.hass.locale?.language || "en";
+      const idle = (cfg.idle_kbps ?? 20) * 1e3;
+      this._tracked = new Set();
+      const found = this._discover();
+      return html`<ha-card>
+        ${cfg.title ? html`<div class="head"><div class="title">${cfg.title}</div></div>` : ""}
+        <div class="rows">
+          ${this._devices.map((dev, i) => {
+            const { defs, error } = found[i];
+            const ports = defs.map((d) => readPort(this.hass.states, d));
+            ports.forEach((p) => p.entities.forEach((e) => this._tracked.add(e)));
+            const up = ports.filter((p) => p.linked).length;
+            return html`<div class="dev">
+              <div class="dhead">
+                <span class="dname">${dev.name}</span>
+                <span class="dsub">${error ? (error === "no_device" ? T.no_device : error) : T.ports_up(up, ports.length)}</span>
+              </div>
+              <div class="ports">${ports.map((p) => this._renderPort(dev, p, T, locale, idle))}</div>
+            </div>`;
+          })}
+        </div>
+        ${cfg.legend === false
+          ? ""
+          : html`<div class="legend">
+              ${SPEED_TIERS.map((t) => html`<span><i style="--c:${t.color}"></i>${t[lang]}</span>`)}
+              <span><i class="off" style="--c:${NO_LINK_COLOR}"></i>${T.no_link}</span>
+              <span><i class="dis"></i>${T.disabled}</span>
+              <span class="hint">${T.traffic}</span>
+              <span><ha-icon icon="mdi:flash"></ha-icon>${T.poe}</span>
+            </div>`}
+      </ha-card>`;
+    }
+
+    _renderPort(dev, p, T, locale, idle) {
+      const meta = dev.portNames[p.name] || {};
+      if (meta.hide) return "";
+      const color = speedColor(p.speedMbps, p.linked !== false);
+      const busy = (p.rxBps ?? 0) > idle || (p.txBps ?? 0) > idle;
+      const who = meta.name || p.device || p.comment;
+      const tip = [
+        `${dev.name} · ${p.name}${who ? ` — ${who}` : ""}`,
+        meta.ip || p.deviceIp,
+        p.disabled ? T.disabled : p.linked ? speedLabel(p.speedMbps) || "" : T.no_link,
+        p.linked ? `↓${formatRate(p.txBps, locale)} ↑${formatRate(p.rxBps, locale)}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const cls = p.disabled ? "dis" : p.linked ? (busy ? "on busy" : "on") : "off";
+      return html`<div class="pt ${cls}" style="--c:${color}" title=${tip} @click=${() => this._moreInfo(p.entity)}>
+        ${portLabel(p.name)}${p.poe ? html`<ha-icon icon="mdi:flash"></ha-icon>` : ""}
+      </div>`;
+    }
+
+    static get styles() {
+      return css`
+        :host {
+          display: block;
+          --ltc-bg: radial-gradient(120% 140% at 0% 0%, #142443 0%, #0a1122 55%, #060a14 100%);
+          --ltc-fg: #e6edf7;
+          --ltc-dim: #8ea3c2;
+          --ltc-border: rgba(120, 160, 255, 0.18);
+        }
+        ha-card {
+          background: var(--ltc-bg);
+          color: var(--ltc-fg);
+          border-radius: var(--ha-card-border-radius, 18px);
+          border: 1px solid var(--ltc-border);
+          box-shadow: inset 0 0 28px rgba(56, 189, 248, 0.07);
+          overflow: hidden;
+          padding-bottom: 4px;
+        }
+        .head {
+          padding: 12px 16px 0;
+        }
+        .title {
+          font-size: 1.05rem;
+          font-weight: 600;
+          text-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
+        }
+        .rows {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          padding: 10px 16px 6px;
+        }
+        .dhead {
+          display: flex;
+          align-items: baseline;
+          gap: 10px;
+          margin-bottom: 5px;
+        }
+        .dname {
+          font-weight: 600;
+          font-size: 0.86rem;
+        }
+        .dsub {
+          color: var(--ltc-dim);
+          font-size: 0.74rem;
+        }
+        .ports {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 5px;
+        }
+        .pt {
+          position: relative;
+          box-sizing: border-box;
+          min-width: 30px;
+          height: 26px;
+          padding: 0 5px;
+          border-radius: 7px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 1px;
+          font-size: 0.72rem;
+          font-weight: 700;
+          font-variant-numeric: tabular-nums;
+          cursor: pointer;
+          user-select: none;
+          -webkit-tap-highlight-color: transparent;
+          transition: box-shadow 0.2s, filter 0.2s;
+        }
+        .pt.on {
+          background: color-mix(in srgb, var(--c) 78%, #0a1122);
+          color: #06101f;
+          box-shadow: 0 0 6px color-mix(in srgb, var(--c) 45%, transparent);
+        }
+        .pt.on.busy {
+          box-shadow: 0 0 0 1px #fff8, 0 0 11px var(--c);
+        }
+        .pt.off {
+          background: rgba(239, 68, 68, 0.08);
+          border: 1px solid rgba(239, 68, 68, 0.55);
+          color: #fca5a5;
+        }
+        .pt.dis {
+          background: rgba(148, 163, 184, 0.06);
+          border: 1px dashed rgba(148, 163, 184, 0.45);
+          color: #64748b;
+        }
+        .pt:hover {
+          filter: brightness(1.2);
+        }
+        .pt ha-icon {
+          --mdc-icon-size: 11px;
+          color: #fde047;
+        }
+        .pt.on ha-icon {
+          color: #713f12;
+        }
+        .legend {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 4px 12px;
+          padding: 4px 16px 10px;
+          font-size: 0.72rem;
+          color: var(--ltc-dim);
+        }
+        .legend i {
+          display: inline-block;
+          width: 10px;
+          height: 10px;
+          border-radius: 3px;
+          background: var(--c);
+          box-shadow: 0 0 6px var(--c);
+          margin-right: 5px;
+          vertical-align: -1px;
+        }
+        .legend i.off {
+          background: transparent;
+          border: 1px solid var(--c);
+          box-shadow: none;
+          box-sizing: border-box;
+        }
+        .legend i.dis {
+          background: transparent;
+          border: 1px dashed #94a3b8;
+          box-shadow: none;
+          box-sizing: border-box;
+        }
+        .legend ha-icon {
+          --mdc-icon-size: 13px;
+          color: #fde047;
+          vertical-align: -2px;
+        }
+      `;
+    }
+  }
+
+  if (!customElements.get("lan-ports-card")) customElements.define("lan-ports-card", LanPortsCard);
   if (!customElements.get("lan-topo-card")) customElements.define("lan-topo-card", LanTopoCard);
   window.customCards = window.customCards || [];
   if (!window.customCards.some((c) => c.type === "lan-topo-card")) {
@@ -1257,6 +1532,14 @@ async function defineCard() {
       type: "lan-topo-card",
       name: "LAN Topo Card",
       description: "Sơ đồ mạng LAN: Internet → router → switch → cổng, đường chạy theo băng thông",
+      documentationURL: "https://github.com/ngoviet/lan-topo-card",
+    });
+  }
+  if (!window.customCards.some((c) => c.type === "lan-ports-card")) {
+    window.customCards.push({
+      type: "lan-ports-card",
+      name: "LAN Ports Card",
+      description: "Lưới cổng switch gọn: mỗi switch một hàng, màu theo tốc độ link",
       documentationURL: "https://github.com/ngoviet/lan-topo-card",
     });
   }

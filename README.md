@@ -137,6 +137,29 @@ ports:
 
 *Down* always means away from the Internet. Ports named in `from_port`/`to_port` are hidden from the device column.
 
+## LAN Ports Card
+
+The same file also registers **`custom:lan-ports-card`**: a compact grid of switch ports, one row per device,
+using the same port adapters. Squares are colored by link speed; a red outline means no link, a dashed one a
+disabled port, a glowing edge means traffic, ⚡ is PoE. Hover (or long-press) shows the device, IP, speed and
+traffic; tapping opens the port entity.
+
+```yaml
+type: custom:lan-ports-card
+title: Switch ports
+devices:
+  - { name: CCR2004 · router, ports: { adapter: routeros, device: CCR2004 } }
+  - { name: CRS326 · 24 ports, ports: { adapter: routeros, device: CRS326 } }
+  - name: GS108PE
+    ports: { adapter: netgear_plus, prefix: gs108pe }
+    port_names: { 2: { name: Camera 1 } }
+```
+
+| Key | Description |
+|---|---|
+| `devices` | **Required.** Each has `name`, `ports` (adapter, as for nodes) and optional `port_names` (`false` hides a port) |
+| `title`, `legend`, `idle_kbps`, `language` | As in LAN Topo Card |
+
 ## Colors
 
 | 10 Gbps | 2.5 Gbps | 1 Gbps | 100 Mbps | 10 Mbps | no link |
