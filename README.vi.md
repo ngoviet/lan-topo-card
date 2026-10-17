@@ -154,6 +154,29 @@ devices:
 | `devices` | **Bắt buộc.** Mỗi thiết bị có `name`, `ports` (adapter, như node) và `port_names` tuỳ chọn (`false` = ẩn cổng) |
 | `title`, `legend`, `idle_kbps`, `language` | Như LAN Topo Card |
 
+## LAN Wi-Fi Card
+
+**`custom:lan-wifi-card`** liệt kê thiết bị Wi-Fi theo từng AP từ integration
+[aruba_instant_ha](https://github.com/ngoviet/aruba_instant_ha): vạch sóng tô màu theo chất lượng, băng tần
+(2,4 / 5 GHz), SSID, IP, tốc độ PHY, SNR. Mỗi AP hiện các radio (kênh + % thời gian kênh bận) và cảnh báo khi hai AP
+trùng kênh. Chip phía trên để lọc theo SSID hoặc băng tần. Chỉ đọc.
+
+```yaml
+type: custom:lan-wifi-card
+entity: sensor.aruba_instant_clients
+title: Wi-Fi
+group_by: ap      # ap | ssid | band
+sort: name        # name | signal (yếu trước) | speed
+```
+
+| Khoá | Mặc định | Ý nghĩa |
+|---|---|---|
+| `entity` | **bắt buộc** | Sensor có thuộc tính `clients` là danh sách `{name, ip, mac, essid, ap, band, channel, signal, quality, speed_mbps}`; tuỳ chọn `aps` (`{tên: {ip, radios: [{band, channel, utilization}]}}`) và `ssids` |
+| `group_by` | `ap` | Nhóm theo `ap`, `ssid` hoặc `band` |
+| `sort` | `name` | `name`, `signal` (sóng yếu trước) hoặc `speed` |
+| `ssid`, `band` | — | Bộ lọc ban đầu |
+| `title`, `language` | `Wi-Fi`, theo HA | |
+
 ## Màu
 
 | 10 Gbps | 2,5 Gbps | 1 Gbps | 100 Mbps | 10 Mbps | không có link |

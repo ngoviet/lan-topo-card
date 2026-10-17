@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.2.1";
+export const VERSION = "0.3.0";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -433,6 +433,62 @@ export function visiblePorts(node, ports, hiddenNames, opts = {}) {
   });
 }
 
+// ═══════════════════════════════ Wi-Fi ═══════════════════════════════
+
+export const QUALITY_COLORS = { good: "#22c55e", ok: "#f59e0b", poor: "#ef4444" };
+
+/** Số vạch sóng 1..4 theo chỉ số signal của Aruba (SNR, dB): ≥40 → 4, ≥30 → 3, ≥20 → 2. */
+export function signalBars(signal) {
+  if (signal === null || signal === undefined || !Number.isFinite(Number(signal))) return 0;
+  const v = Number(signal);
+  return v >= 40 ? 4 : v >= 30 ? 3 : v >= 20 ? 2 : 1;
+}
+
+/** Màu theo nhãn chất lượng của Aruba; không có nhãn thì suy từ số vạch. */
+export function qualityColor(quality, signal) {
+  if (quality && QUALITY_COLORS[quality]) return QUALITY_COLORS[quality];
+  const b = signalBars(signal);
+  return b >= 3 ? QUALITY_COLORS.good : b === 2 ? QUALITY_COLORS.ok : b === 1 ? QUALITY_COLORS.poor : "#94a3b8";
+}
+
+/** AP dùng chung kênh trên cùng băng → {apName: [tên AP trùng kênh]} (kênh 2,4 GHz chồng nhau gây nhiễu). */
+export function coChannel(aps) {
+  const byKey = new Map();
+  for (const [name, ap] of Object.entries(aps || {})) {
+    for (const r of ap.radios || []) {
+      const ch = String(r.channel ?? "").match(/^\d+/)?.[0];
+      if (!ch || !r.band) continue;
+      const key = `${r.band}:${ch}`;
+      byKey.set(key, [...(byKey.get(key) || []), name]);
+    }
+  }
+  const out = {};
+  for (const [key, names] of byKey) {
+    if (names.length < 2) continue;
+    for (const n of names) {
+      out[n] = out[n] || [];
+      out[n].push({ band: key.split(":")[0], channel: key.split(":")[1], with: names.filter((x) => x !== n) });
+    }
+  }
+  return out;
+}
+
+/** Lọc + nhóm + sắp xếp danh sách client. by: ap | ssid | band; sort: name | signal (yếu trước) | speed. */
+export function groupClients(clients, { by = "ap", sort = "name", ssid = null, band = null } = {}) {
+  const list = (clients || []).filter((c) => (!ssid || c.essid === ssid) && (!band || c.band === band));
+  const cmp = {
+    name: (a, b) => naturalCompare(a.name || "", b.name || ""),
+    signal: (a, b) => (a.signal ?? -1) - (b.signal ?? -1) || naturalCompare(a.name || "", b.name || ""),
+    speed: (a, b) => (b.speed_mbps ?? -1) - (a.speed_mbps ?? -1) || naturalCompare(a.name || "", b.name || ""),
+  }[sort] || ((a, b) => naturalCompare(a.name || "", b.name || ""));
+  const key = (c) => (by === "ssid" ? c.essid : by === "band" ? (c.band ? `${c.band} GHz` : null) : c.ap) || "?";
+  const groups = new Map();
+  for (const c of list) groups.set(key(c), [...(groups.get(key(c)) || []), c]);
+  return [...groups.entries()]
+    .sort((a, b) => naturalCompare(a[0], b[0]))
+    .map(([name, items]) => ({ name, clients: items.sort(cmp) }));
+}
+
 // ═══════════════════════════════ Bố cục ═══════════════════════════════
 
 export const LAYOUT = {
@@ -594,6 +650,11 @@ const STRINGS = {
     moving: "đường chạy = có lưu lượng",
     disabled: "cổng tắt",
     traffic: "sáng viền = có lưu lượng",
+    clients: (n) => `${n} thiết bị`,
+    all: "Tất cả",
+    busy: "bận",
+    same_channel: (ch, who) => `trùng kênh ${ch} với ${who}`,
+    no_entity: "không thấy entity",
   },
   en: {
     ports_up: (n, m) => `${n}/${m} ports up`,
@@ -607,6 +668,11 @@ const STRINGS = {
     moving: "moving line = traffic",
     disabled: "port disabled",
     traffic: "glowing edge = traffic",
+    clients: (n) => `${n} clients`,
+    all: "All",
+    busy: "busy",
+    same_channel: (ch, who) => `same channel ${ch} as ${who}`,
+    no_entity: "entity not found",
   },
 };
 
@@ -1532,6 +1598,329 @@ async function defineCard() {
     }
   }
 
+  /**
+   * lan-wifi-card — thiết bị Wi-Fi theo AP (integration aruba_instant_ha): sóng, băng tần, SSID,
+   * tốc độ, tải kênh từng radio, cảnh báo AP trùng kênh. Chỉ đọc.
+   */
+  class LanWifiCard extends LitElement {
+    static get properties() {
+      return { hass: { attribute: false }, _config: { state: true }, _ssid: { state: true }, _band: { state: true } };
+    }
+
+    static getStubConfig() {
+      return { entity: "sensor.aruba_instant_clients" };
+    }
+
+    setConfig(config) {
+      if (!config || !config.entity) throw new Error("lan-wifi-card: cần `entity` (sensor tổng thiết bị Wi-Fi)");
+      this._config = config;
+      this._ssid = config.ssid ?? null;
+      this._band = config.band ?? null;
+    }
+
+    getCardSize() {
+      return 6;
+    }
+
+    getGridOptions() {
+      return { columns: "full", min_columns: 6 };
+    }
+
+    shouldUpdate(changed) {
+      if (changed.size > 1 || !changed.has("hass")) return true;
+      const old = changed.get("hass");
+      return !old || old.states[this._config.entity] !== this.hass.states[this._config.entity];
+    }
+
+    _chip(label, active, onClick, color) {
+      return html`<button class="chip ${active ? "on" : ""}" style=${color ? `--c:${color}` : ""} @click=${onClick}>${label}</button>`;
+    }
+
+    render() {
+      if (!this._config || !this.hass) return html``;
+      const cfg = this._config;
+      const T = strings(cfg.language || this.hass.locale?.language || this.hass.language);
+      const st = this.hass.states[cfg.entity];
+      if (!st) return html`<ha-card><div class="empty">${T.no_entity}: ${cfg.entity}</div></ha-card>`;
+      const clients = st.attributes.clients || [];
+      const aps = st.attributes.aps || {};
+      const ssids = st.attributes.ssids || {};
+      const bands = [...new Set(clients.map((c) => c.band).filter(Boolean))].sort();
+      const by = cfg.group_by || "ap";
+      const groups = groupClients(clients, { by, sort: cfg.sort || "name", ssid: this._ssid, band: this._band });
+      const overlap = coChannel(aps);
+      const shown = groups.reduce((n, g) => n + g.clients.length, 0);
+      return html`<ha-card>
+        <div class="head">
+          <div class="title">${cfg.title ?? "Wi-Fi"}</div>
+          <div class="sub">${T.clients(shown)}${shown !== clients.length ? ` / ${clients.length}` : ""}</div>
+        </div>
+        <div class="filters">
+          ${this._chip(T.all, !this._ssid && !this._band, () => ((this._ssid = null), (this._band = null)))}
+          ${Object.entries(ssids).map(([name, n]) => this._chip(`${name} · ${n}`, this._ssid === name, () => (this._ssid = this._ssid === name ? null : name)))}
+          ${bands.map((b) => this._chip(`${b} GHz`, this._band === b, () => (this._band = this._band === b ? null : b), b === "5" ? "#a78bfa" : "#38bdf8"))}
+        </div>
+        <div class="groups">
+          ${groups.map((g) => this._renderGroup(g, by === "ap" ? aps[g.name] : null, overlap[g.name], T))}
+        </div>
+      </ha-card>`;
+    }
+
+    _renderGroup(group, ap, overlap, T) {
+      return html`<div class="grp">
+        <div class="ghead">
+          <ha-icon icon=${ap ? "mdi:access-point" : "mdi:wifi"}></ha-icon>
+          <span class="gname">${group.name}</span>
+          <span class="gsub">${T.clients(group.clients.length)}${ap?.ip ? ` · ${ap.ip}` : ""}</span>
+          ${ap ? (ap.radios || []).map((r) => this._radio(r, T)) : ""}
+          ${(overlap || []).map((o) => html`<span class="warn"><ha-icon icon="mdi:alert"></ha-icon>${o.band} GHz · ${T.same_channel(o.channel, o.with.join(", "))}</span>`)}
+        </div>
+        <div class="clients">${group.clients.map((c) => this._client(c))}</div>
+      </div>`;
+    }
+
+    _radio(r, T) {
+      const util = Number(r.utilization) || 0;
+      const col = util >= 60 ? "#ef4444" : util >= 35 ? "#f59e0b" : "#22c55e";
+      return html`<span class="radio" title=${`${r.band} GHz · ch ${r.channel} · ${r.power_dbm ?? "?"} dBm · noise ${r.noise_dbm ?? "?"} dBm`}>
+        <b>${r.band}G</b> ch${r.channel}
+        <span class="bar"><i style="width:${Math.min(100, util)}%;background:${col}"></i></span>${util}% ${T.busy}
+      </span>`;
+    }
+
+    _client(c) {
+      const color = qualityColor(c.quality, c.signal);
+      const bars = signalBars(c.signal);
+      const tip = [c.name, c.hostname && c.hostname !== c.name ? `host: ${c.hostname}` : null, c.mac, c.os && c.os !== "NOFP" ? c.os : null, c.phy ? `PHY ${c.phy} · ch ${c.channel}` : null, c.ap]
+        .filter(Boolean)
+        .join("\n");
+      return html`<div class="cl" style="--c:${color}" title=${tip}>
+        <span class="sig">${[1, 2, 3, 4].map((i) => html`<i class=${i <= bars ? "on" : ""} style="height:${3 + i * 3}px"></i>`)}</span>
+        <div class="cmain">
+          <div class="cname">${c.name}</div>
+          <div class="csub">${[c.ip, c.essid].filter(Boolean).join(" · ")}</div>
+        </div>
+        <div class="cright">
+          ${c.band ? html`<span class="band b${String(c.band).replace(".", "")}">${c.band}</span>` : ""}
+          <span class="spd">${c.speed_mbps ?? "—"}<small>M</small></span>
+          <span class="snr">${c.signal ?? "—"}<small>dB</small></span>
+        </div>
+      </div>`;
+    }
+
+    static get styles() {
+      return css`
+        :host {
+          display: block;
+          --ltc-bg: radial-gradient(120% 140% at 0% 0%, #142443 0%, #0a1122 55%, #060a14 100%);
+          --ltc-fg: #e6edf7;
+          --ltc-dim: #8ea3c2;
+          --ltc-panel: rgba(14, 24, 46, 0.86);
+          --ltc-border: rgba(120, 160, 255, 0.18);
+        }
+        ha-card {
+          background: var(--ltc-bg);
+          color: var(--ltc-fg);
+          border-radius: var(--ha-card-border-radius, 18px);
+          border: 1px solid var(--ltc-border);
+          box-shadow: inset 0 0 28px rgba(56, 189, 248, 0.07);
+          overflow: hidden;
+          padding-bottom: 8px;
+        }
+        .empty {
+          padding: 16px;
+          color: #fbbf24;
+        }
+        .head {
+          display: flex;
+          align-items: baseline;
+          gap: 10px;
+          padding: 12px 16px 4px;
+        }
+        .title {
+          font-size: 1.05rem;
+          font-weight: 600;
+          text-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
+        }
+        .sub {
+          color: var(--ltc-dim);
+          font-size: 0.8rem;
+        }
+        .filters {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          padding: 4px 16px 6px;
+        }
+        .chip {
+          --c: #22d3ee;
+          font: inherit;
+          font-size: 0.74rem;
+          color: var(--ltc-fg);
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid var(--ltc-border);
+          border-radius: 999px;
+          padding: 3px 10px;
+          cursor: pointer;
+        }
+        .chip.on {
+          border-color: var(--c);
+          color: var(--c);
+          background: color-mix(in srgb, var(--c) 14%, transparent);
+          box-shadow: 0 0 8px color-mix(in srgb, var(--c) 40%, transparent);
+        }
+        .groups {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          padding: 4px 12px 4px;
+        }
+        .grp {
+          background: var(--ltc-panel);
+          border: 1px solid color-mix(in srgb, #60a5fa 45%, transparent);
+          border-radius: 14px;
+          box-shadow: 0 0 12px rgba(96, 165, 250, 0.18);
+          padding: 8px 10px 10px;
+        }
+        .ghead {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 4px 10px;
+          margin-bottom: 8px;
+        }
+        .ghead ha-icon {
+          --mdc-icon-size: 18px;
+          color: #60a5fa;
+          filter: drop-shadow(0 0 4px #60a5fa);
+        }
+        .gname {
+          font-weight: 600;
+        }
+        .gsub {
+          color: var(--ltc-dim);
+          font-size: 0.76rem;
+        }
+        .radio {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 0.72rem;
+          color: var(--ltc-dim);
+          padding: 1px 8px;
+          border: 1px solid var(--ltc-border);
+          border-radius: 8px;
+        }
+        .radio b {
+          color: var(--ltc-fg);
+        }
+        .bar {
+          display: inline-block;
+          width: 40px;
+          height: 5px;
+          border-radius: 3px;
+          background: rgba(255, 255, 255, 0.1);
+          overflow: hidden;
+        }
+        .bar i {
+          display: block;
+          height: 100%;
+        }
+        .warn {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 0.72rem;
+          color: #fbbf24;
+        }
+        .warn ha-icon {
+          --mdc-icon-size: 14px;
+          color: #fbbf24;
+          filter: none;
+        }
+        .clients {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+          gap: 6px;
+        }
+        .cl {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+          padding: 5px 8px;
+          border-radius: 10px;
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
+          border-left: 3px solid var(--c);
+        }
+        .sig {
+          display: inline-flex;
+          align-items: flex-end;
+          gap: 2px;
+          height: 15px;
+          flex: none;
+        }
+        .sig i {
+          width: 3px;
+          border-radius: 1px;
+          background: rgba(255, 255, 255, 0.15);
+        }
+        .sig i.on {
+          background: var(--c);
+          box-shadow: 0 0 4px var(--c);
+        }
+        .cmain {
+          flex: 1;
+          min-width: 0;
+        }
+        .cname {
+          font-size: 0.8rem;
+          font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .csub {
+          font-size: 0.68rem;
+          color: var(--ltc-dim);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .cright {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex: none;
+          font-size: 0.7rem;
+          font-variant-numeric: tabular-nums;
+        }
+        .cright small {
+          color: var(--ltc-dim);
+          margin-left: 1px;
+        }
+        .band {
+          font-size: 0.62rem;
+          font-weight: 700;
+          padding: 1px 4px;
+          border-radius: 5px;
+          border: 1px solid currentColor;
+        }
+        .band.b24 {
+          color: #38bdf8;
+        }
+        .band.b5 {
+          color: #a78bfa;
+        }
+        .snr {
+          color: var(--c);
+        }
+      `;
+    }
+  }
+
+  if (!customElements.get("lan-wifi-card")) customElements.define("lan-wifi-card", LanWifiCard);
   if (!customElements.get("lan-ports-card")) customElements.define("lan-ports-card", LanPortsCard);
   if (!customElements.get("lan-topo-card")) customElements.define("lan-topo-card", LanTopoCard);
   window.customCards = window.customCards || [];
@@ -1540,6 +1929,14 @@ async function defineCard() {
       type: "lan-topo-card",
       name: "LAN Topo Card",
       description: "Sơ đồ mạng LAN: Internet → router → switch → cổng, đường chạy theo băng thông",
+      documentationURL: "https://github.com/ngoviet/lan-topo-card",
+    });
+  }
+  if (!window.customCards.some((c) => c.type === "lan-wifi-card")) {
+    window.customCards.push({
+      type: "lan-wifi-card",
+      name: "LAN Wi-Fi Card",
+      description: "Thiết bị Wi-Fi theo AP (Aruba Instant): sóng, băng tần, SSID, tải kênh",
       documentationURL: "https://github.com/ngoviet/lan-topo-card",
     });
   }

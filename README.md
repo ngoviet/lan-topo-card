@@ -160,6 +160,29 @@ devices:
 | `devices` | **Required.** Each has `name`, `ports` (adapter, as for nodes) and optional `port_names` (`false` hides a port) |
 | `title`, `legend`, `idle_kbps`, `language` | As in LAN Topo Card |
 
+## LAN Wi-Fi Card
+
+**`custom:lan-wifi-card`** lists Wi-Fi clients per access point from the
+[aruba_instant_ha](https://github.com/ngoviet/aruba_instant_ha) integration: signal bars colored by quality,
+band (2.4 / 5 GHz), SSID, IP, PHY speed, SNR. Each AP shows its radios (channel + channel busy %) and warns when
+two APs share a channel. Chips on top filter by SSID or band. Read-only.
+
+```yaml
+type: custom:lan-wifi-card
+entity: sensor.aruba_instant_clients
+title: Wi-Fi
+group_by: ap      # ap | ssid | band
+sort: name        # name | signal (weakest first) | speed
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `entity` | **required** | Sensor whose `clients` attribute is a list of `{name, ip, mac, essid, ap, band, channel, signal, quality, speed_mbps}`; optional `aps` (`{name: {ip, radios: [{band, channel, utilization}]}}`) and `ssids` |
+| `group_by` | `ap` | Group clients by `ap`, `ssid` or `band` |
+| `sort` | `name` | `name`, `signal` (weakest first) or `speed` |
+| `ssid`, `band` | — | Initial filter |
+| `title`, `language` | `Wi-Fi`, HA language | |
+
 ## Colors
 
 | 10 Gbps | 2.5 Gbps | 1 Gbps | 100 Mbps | 10 Mbps | no link |
