@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.3.1";
+export const VERSION = "0.3.2";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -97,6 +97,15 @@ export function flowLevel(bps, idleBps = 20e3) {
   if (bps < 100e6) return 3;
   if (bps < 1e9) return 4;
   return 5;
+}
+
+/**
+ * Độ dày (px) của sợi lưu lượng, tỉ lệ log10 với bit/s: 100 kbps ≈ 1,2 · 1 Mbps ≈ 2,3 ·
+ * 10 Mbps ≈ 3,4 · 100 Mbps ≈ 4,5 · 1 Gbps ≈ 5,6 (chặn trong [min, max]).
+ */
+export function flowWidth(bps, { min = 1.2, max = 7, perDecade = 1.1 } = {}) {
+  if (!bps || bps <= 0) return min;
+  return Math.min(max, Math.max(min, min + perDecade * Math.log10(bps / 1e5)));
 }
 
 /** So sánh tự nhiên: ether2 < ether10 < sfp-sfpplus1. */
@@ -1007,11 +1016,17 @@ async function defineCard() {
           color = speedColor(l.port.speedMbps, l.port.linked !== false);
           w = 1.6;
         }
-        const off = lay.mode === "horizontal" ? Math.max(1.6, w * 0.7) : 0;
-        const style = `--c:${color};--w:${w}px`;
-        want.set(`${l.key}|b`, { d, cls: `base ${hot}`, style });
-        want.set(`${l.key}|d`, { d, cls: `flow down lv${flowLevel(down, this._idleBps)}`, style, tr: off ? `translate(0 ${-off})` : "" });
-        want.set(`${l.key}|u`, { d, cls: `flow up lv${flowLevel(up, this._idleBps)}`, style, tr: off ? `translate(0 ${off})` : "" });
+        // Ống mờ = dung lượng link; 2 sợi ↓/↑ dày theo lưu lượng thật (log), tách 2 bên ống.
+        const cap = l.kind === "node" ? 5.6 : 4;
+        const wd = flowWidth(down, { max: cap });
+        const wu = flowWidth(up, { max: cap });
+        const base = Math.max(w, wd + wu + 1);
+        const off = (wd + wu) / 4 + 0.6;
+        const tr = (sign) => (lay.mode === "horizontal" ? `translate(0 ${sign * off})` : `translate(${sign * off} 0)`);
+        const r1 = (n) => Math.round(n * 10) / 10;
+        want.set(`${l.key}|b`, { d, cls: `base ${hot}`, style: `--c:${color};--w:${r1(base)}px` });
+        want.set(`${l.key}|d`, { d, cls: `flow down lv${flowLevel(down, this._idleBps)}`, style: `--c:${color};--fw:${r1(wd)}px`, tr: tr(-1) });
+        want.set(`${l.key}|u`, { d, cls: `flow up lv${flowLevel(up, this._idleBps)}`, style: `--c:${color};--fw:${r1(wu)}px`, tr: tr(1) });
       }
       for (const el of [...svg.children]) {
         if (!want.has(el.dataset.k)) el.remove();
@@ -1094,8 +1109,9 @@ async function defineCard() {
         }
         path.base {
           stroke: var(--c);
-          stroke-opacity: 0.3;
+          stroke-opacity: 0.18;
           stroke-width: var(--w);
+          transition: stroke-width 0.6s;
         }
         path.base.warm {
           stroke-opacity: 0.55;
@@ -1106,8 +1122,9 @@ async function defineCard() {
           filter: drop-shadow(0 0 6px #ef4444);
         }
         path.flow {
-          stroke-width: calc(var(--w) * 0.85);
-          stroke-dasharray: 3 14;
+          stroke-width: var(--fw);
+          stroke-dasharray: 2 16;
+          transition: stroke-width 0.6s;
           opacity: 0;
         }
         path.flow.down {
@@ -1138,7 +1155,7 @@ async function defineCard() {
         path.flow.lv5 { animation-duration: 0.42s; }
         @keyframes ltc-flow {
           to {
-            stroke-dashoffset: -17;
+            stroke-dashoffset: -18;
           }
         }
         @media (prefers-reduced-motion: reduce) {

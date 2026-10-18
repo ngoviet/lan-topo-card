@@ -100,3 +100,15 @@ test("naturalCompare + slugify", () => {
   assert.equal(slugify("GS108PEv3 192.168.0.239"), "gs108pev3_192_168_0_239");
   assert.equal(slugify("Đèn Tầng 1"), "den_tang_1");
 });
+
+test("flowWidth: dày theo log10 lưu lượng, có chặn", async () => {
+  const { flowWidth } = await import("../dist/lan-topo-card.js");
+  assert.equal(flowWidth(0), 1.2);
+  assert.equal(flowWidth(null), 1.2);
+  assert.equal(flowWidth(1e5), 1.2);
+  assert.ok(Math.abs(flowWidth(1e6) - 2.3) < 1e-9);
+  assert.ok(Math.abs(flowWidth(1e8) - 4.5) < 1e-9);
+  assert.equal(flowWidth(1e12), 7);
+  assert.equal(flowWidth(1e9, { max: 4 }), 4);
+  assert.ok(flowWidth(50e6) > flowWidth(5e6)); // gấp 10 lần lưu lượng → dày hơn
+});
