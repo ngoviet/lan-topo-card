@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.4.0";
+export const VERSION = "0.4.1";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -1017,7 +1017,8 @@ async function defineCard() {
         <div class="thead"><ha-icon icon="mdi:podium"></ha-icon>${T.top}</div>
         ${rows.length
           ? rows.map((r, i) => {
-              const pct = usagePct(r.total);
+              // Bảng xếp hạng: thanh tỉ lệ thẳng so với máy đứng đầu (log làm 369 vs 25 Mbps trông gần bằng nhau).
+              const pct = Math.max(2, (r.total / rows[0].total) * 100);
               const downPart = r.total ? (r.down / r.total) * pct : 0;
               const heat = heatLevel(r.total, this._heatOpts);
               return html`<div class="trow heat${heat} ${r.port.entity ? "clickable" : ""}" @click=${() => this._moreInfo(r.port.entity)}>
