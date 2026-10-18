@@ -88,6 +88,7 @@ edges:
 | `idle_kbps` | `20` | Below this traffic a link stands still |
 | `show_all_ports` | `false` | Also list ports without link/traffic |
 | `legend` | `true` | Show the color legend |
+| `motion` | `on` | `on`: flow dots always move (they carry information); `auto`: stop when the OS asks for reduced motion (Windows *Animation effects* off); `off`: never move |
 | `language` | HA language | `vi` or `en` |
 
 ### Node

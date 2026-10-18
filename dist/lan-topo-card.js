@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.3.2";
+export const VERSION = "0.3.3";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -739,6 +739,8 @@ async function defineCard() {
     setConfig(config) {
       const topo = normalizeConfig(config);
       this._topo = topo;
+      const motion = ["auto", "off"].includes(config.motion) ? config.motion : "on";
+      this.setAttribute("motion", motion);
       this._config = config;
       this._multi = config.expand === "multi" || config.expanded === "all";
       this._expanded = initialExpanded(topo, config.expanded, this._multi);
@@ -1158,8 +1160,13 @@ async function defineCard() {
             stroke-dashoffset: -18;
           }
         }
+        /* Hạt chạy là thông tin (có lưu lượng / nhanh chậm) → mặc định luôn chạy, kể cả khi hệ điều
+           hành bật "giảm chuyển động". motion: auto = tôn trọng thiết lập đó, motion: off = tắt hẳn. */
+        :host([motion="off"]) path.flow {
+          animation: none !important;
+        }
         @media (prefers-reduced-motion: reduce) {
-          path.flow {
+          :host([motion="auto"]) path.flow {
             animation: none !important;
           }
         }

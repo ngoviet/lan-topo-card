@@ -83,6 +83,7 @@ edges:
 | `idle_kbps` | `20` | Lưu lượng dưới mức này thì đường đứng yên |
 | `show_all_ports` | `false` | Hiện cả cổng không có link/lưu lượng |
 | `legend` | `true` | Hiện chú thích màu |
+| `motion` | `on` | `on`: hạt luôn chạy (hạt là thông tin lưu lượng); `auto`: dừng khi hệ điều hành bật giảm chuyển động (Windows tắt *Animation effects*); `off`: không bao giờ chạy |
 | `language` | theo HA | `vi` hoặc `en` |
 
 ### Node
