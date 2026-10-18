@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.4.1";
+export const VERSION = "0.4.2";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -1479,6 +1479,8 @@ async function defineCard() {
         }
         .tval {
           display: flex;
+          justify-content: flex-end;
+          min-width: 13.5em; /* cột số cố định → các thanh thẳng hàng, so độ dài chính xác */
           gap: 8px;
           font-size: 0.74rem;
           font-variant-numeric: tabular-nums;
@@ -1497,6 +1499,12 @@ async function defineCard() {
         @media (max-width: 600px) {
           .trow {
             grid-template-columns: 22px 1fr auto;
+          }
+          .tval {
+            min-width: 0;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0;
           }
           .tbar {
             grid-column: 2 / 4;
