@@ -76,7 +76,9 @@ edges:
 | `edges` | `[]` | Đường nối giữa các node. Topo phải là cây (mỗi node một node cha) |
 | `expanded` | `[]` | Id node mở sẵn khi tải, hoặc `all` (mọi node có cổng; tự bật `expand: multi`) |
 | `expand` | `single` | `single`: mở switch này thì đóng switch khác; `multi`: mở nhiều cái cùng lúc |
-| `layout` | `auto` | `auto`, `horizontal`, `vertical` |
+| `layout` | `auto` | `auto`, `horizontal`, `vertical` (mặc định cho nút chuyển view) |
+| `chain` | `stack` | `stack`: chuỗi node đầu cây chỉ có 1 con (vd Internet → modem → router) xếp dọc trong 1 cột cho gọn bề ngang; `row`: mỗi node 1 cột |
+| `view_switch` | `true` | Nút trên tiêu đề để chọn *Tự động* / *Sơ đồ* / *Danh sách*; mỗi trình duyệt nhớ lựa chọn riêng |
 | `breakpoint` | `600` | Card hẹp hơn mức này (px) thì `auto` dùng bố cục dọc |
 | `min_scale` | `0.55` | `auto` chuyển sang dọc khi cây phải co nhỏ hơn tỉ lệ này |
 | `max_scale` | `1` | Không phóng to cây quá tỉ lệ này |

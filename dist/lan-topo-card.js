@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.4.3";
+export const VERSION = "0.5.0";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -555,6 +555,7 @@ export const LAYOUT = {
   colGap: 104,
   rowGap: 22,
   portGap: 8,
+  chainGap: 44, // khoảng dọc giữa các node của chuỗi xếp chồng (đủ chỗ nhãn ↓/↑ bên cạnh)
   // dọc (điện thoại)
   vIndent: 18,
   vNodeH: 70,
@@ -576,8 +577,12 @@ export function buildTree(topo, expanded, portLeaves) {
   return topo.roots.map((r) => make(r, null));
 }
 
-/** Bố cục cây ngang (trái → phải). Trả { boxes, links, width, height }. */
-export function layoutHorizontal(trees, L = LAYOUT) {
+/**
+ * Bố cục cây ngang (trái → phải). Trả { boxes, links, width, height }.
+ * chain: "stack" → chuỗi đầu cây (node chỉ có đúng 1 node con, vd Internet → Modem → Router)
+ * xếp dọc trong 1 cột thay vì mỗi node 1 cột — sơ đồ hẹp lại, đỡ phải co chữ.
+ */
+export function layoutHorizontal(trees, L = LAYOUT, { chain = "row" } = {}) {
   const size = (it) => (it.kind === "port" ? [L.portW, L.portH] : [L.nodeW, L.nodeH]);
   const gap = (a, b) => (a.kind === "port" && b.kind === "port" ? L.portGap : L.rowGap);
   const measure = (it) => {
@@ -619,10 +624,47 @@ export function layoutHorizontal(trees, L = LAYOUT) {
   };
   let top = L.pad;
   trees.forEach((t, i) => {
-    measure(t);
+    const lead = [t];
+    if (chain === "stack") {
+      let cur = t;
+      while (cur.children.length === 1 && cur.children[0].kind === "node") {
+        cur = cur.children[0];
+        lead.push(cur);
+      }
+    }
+    const head = lead[lead.length - 1];
+    measure(head);
     if (i) top += L.rowGap * 2;
-    place(t, L.pad, top, null);
-    top += t._h;
+    const b0 = boxes.length;
+    const l0 = links.length;
+    place(head, L.pad, top, null);
+    // Các node phía trên chuỗi: chồng lên trên node đầu khối, nối bằng đoạn thẳng đứng.
+    let below = boxes[b0];
+    for (let k = lead.length - 2; k >= 0; k--) {
+      const it = lead[k];
+      const child = lead[k + 1];
+      const box = { kind: "node", key: it.key, id: it.id, edge: it.edge, x: below.x, y: below.y - L.chainGap - L.nodeH, w: L.nodeW, h: L.nodeH };
+      boxes.push(box);
+      links.push({
+        key: child.key,
+        kind: "node",
+        edge: child.edge,
+        dir: "v",
+        x1: box.x + box.w / 2, y1: box.y + box.h,
+        x2: below.x + below.w / 2, y2: below.y,
+      });
+      below = box;
+    }
+    const mine = boxes.slice(b0);
+    const shift = top - Math.min(...mine.map((b) => b.y));
+    if (shift > 0) {
+      for (const b of mine) b.y += shift;
+      for (const l of links.slice(l0)) {
+        l.y1 += shift;
+        l.y2 += shift;
+      }
+    }
+    top = Math.max(...mine.map((b) => b.y + b.h));
   });
   for (const t of trees) cleanup(t);
   return { boxes, links, width: width + L.pad, height: top + L.pad, mode: "horizontal" };
@@ -666,6 +708,7 @@ function cleanup(it) {
 /** Đường cong (ngang) hoặc gấp khúc bo góc (dọc) giữa 2 điểm. */
 export function linkPath(l, mode) {
   const r = (n) => Math.round(n * 10) / 10;
+  if (l.dir === "v") return `M${r(l.x1)} ${r(l.y1)}V${r(l.y2)}`;
   if (mode === "vertical") {
     const rad = Math.min(8, Math.abs(l.y2 - l.y1), Math.abs(l.x2 - l.x1));
     return `M${r(l.x1)} ${r(l.y1)}V${r(l.y2 - rad)}Q${r(l.x1)} ${r(l.y2)} ${r(l.x1 + rad)} ${r(l.y2)}H${r(l.x2)}`;
@@ -681,7 +724,7 @@ export function fitLayout(trees, width, opts = {}) {
   const maxScale = opts.maxScale ?? 1;
   const mode = opts.layout ?? "auto";
   if (mode !== "vertical") {
-    const h = layoutHorizontal(trees);
+    const h = layoutHorizontal(trees, LAYOUT, { chain: opts.chain ?? "row" });
     const scale = Math.min(maxScale, width / h.width);
     if (mode === "horizontal" || (width >= breakpoint && scale >= minScale)) {
       return { ...h, scale, offsetX: Math.max(0, (width - h.width * scale) / 2) };
@@ -704,6 +747,9 @@ const STRINGS = {
     poe: "PoE",
     moving: "đường chạy = có lưu lượng",
     top: "Đang dùng mạng nhiều nhất",
+    view_auto: "Tự động",
+    view_tree: "Sơ đồ",
+    view_list: "Danh sách",
     top_none: "Không có thiết bị nào đang dùng đáng kể",
     disabled: "cổng tắt",
     traffic: "sáng viền = có lưu lượng",
@@ -725,6 +771,9 @@ const STRINGS = {
     poe: "PoE",
     moving: "moving line = traffic",
     top: "Top talkers",
+    view_auto: "Auto",
+    view_tree: "Tree",
+    view_list: "List",
     top_none: "No device is using noticeable bandwidth",
     disabled: "port disabled",
     traffic: "glowing edge = traffic",
@@ -789,6 +838,12 @@ async function defineCard() {
     setConfig(config) {
       const topo = normalizeConfig(config);
       this._topo = topo;
+      try {
+        const saved = localStorage.getItem(`lan-topo-card:view:${config.title || "default"}`);
+        this._view = saved === "horizontal" || saved === "vertical" ? saved : null;
+      } catch (_e) {
+        this._view = null;
+      }
       const motion = ["auto", "off"].includes(config.motion) ? config.motion : "on";
       this.setAttribute("motion", motion);
       this._config = config;
@@ -916,7 +971,13 @@ async function defineCard() {
       const trees = buildTree(this._topo, this._expanded, leaves);
       const width = this._width || 0;
       const lay = width
-        ? fitLayout(trees, width, { layout: cfg.layout, breakpoint: cfg.breakpoint, minScale: cfg.min_scale, maxScale: cfg.max_scale })
+        ? fitLayout(trees, width, {
+            layout: this._view || cfg.layout,
+            chain: cfg.chain ?? "stack",
+            breakpoint: cfg.breakpoint,
+            minScale: cfg.min_scale,
+            maxScale: cfg.max_scale,
+          })
         : null;
       this._lay = lay;
       this._traffic = traffic;
@@ -926,10 +987,11 @@ async function defineCard() {
 
       return html`
         <ha-card>
-          ${cfg.title || cfg.subtitle
+          ${cfg.title || cfg.subtitle || cfg.view_switch !== false
             ? html`<div class="head">
                 ${cfg.title ? html`<div class="title">${cfg.title}</div>` : ""}
                 ${cfg.subtitle ? html`<div class="sub">${cfg.subtitle}</div>` : ""}
+                ${cfg.view_switch === false ? "" : this._renderViewSwitch(T)}
               </div>`
             : ""}
           <div class="viewport ${lay?.mode || ""}" style="height:${height}px">
@@ -1035,10 +1097,43 @@ async function defineCard() {
       </div>`;
     }
 
+    _viewKey() {
+      return `lan-topo-card:view:${this._config.title || "default"}`;
+    }
+
+    _setView(mode) {
+      this._view = mode === "auto" ? null : mode;
+      try {
+        if (this._view) localStorage.setItem(this._viewKey(), this._view);
+        else localStorage.removeItem(this._viewKey());
+      } catch (_e) {
+        /* chế độ riêng tư / chặn lưu trữ: chỉ nhớ trong phiên */
+      }
+      this.requestUpdate();
+    }
+
+    _renderViewSwitch(T) {
+      const cur = this._view || "auto";
+      const btn = (mode, icon, label) =>
+        html`<button class="vbtn ${cur === mode ? "on" : ""}" title=${label} @click=${() => this._setView(mode)}>
+          <ha-icon .icon=${icon}></ha-icon><span>${label}</span>
+        </button>`;
+      return html`<div class="vswitch">
+        ${btn("auto", "mdi:auto-fix", T.view_auto)} ${btn("horizontal", "mdi:sitemap-outline", T.view_tree)}
+        ${btn("vertical", "mdi:format-list-bulleted-square", T.view_list)}
+      </div>`;
+    }
+
     _renderEdgeLabel(l, traffic, locale) {
       if (l.edge?.label === false) return "";
       const t = traffic.get(l.edge.key);
       if (!t || (t.down === null && t.up === null)) return "";
+      if (l.dir === "v") {
+        // Đoạn đứng của chuỗi xếp chồng: nhãn đặt bên phải đường, giữa đoạn.
+        return html`<div class="elabel v" style="left:${l.x1 + 9}px;top:${(l.y1 + l.y2) / 2}px">
+          <span class="d">↓ ${formatRate(t.down, locale)}</span><span class="u">↑ ${formatRate(t.up, locale)}</span>
+        </div>`;
+      }
       // Sát node con, nơi đường cong đã nằm ngang — giữa đường thì đè lên chùm đường của cột cổng.
       const x = l.x2 - Math.min(52, (l.x2 - l.x1) / 2);
       const y = l.y2 - 5;
@@ -1104,7 +1199,8 @@ async function defineCard() {
         const wu = flowWidth(up, { max: cap });
         const base = Math.max(w, wd + wu + 1);
         const off = (wd + wu) / 4 + 0.6;
-        const tr = (sign) => (lay.mode === "horizontal" ? `translate(0 ${sign * off})` : `translate(${sign * off} 0)`);
+        const upright = lay.mode === "vertical" || l.dir === "v";
+        const tr = (sign) => (upright ? `translate(${sign * off} 0)` : `translate(0 ${sign * off})`);
         const r1 = (n) => Math.round(n * 10) / 10;
         want.set(`${l.key}|b`, { d, cls: `base ${hot}`, style: `--c:${color};--w:${r1(base)}px` });
         want.set(`${l.key}|d`, { d, cls: `flow down lv${flowLevel(down, this._idleBps)}`, style: `--c:${color};--fw:${r1(wd)}px`, tr: tr(-1) });
@@ -1587,6 +1683,47 @@ async function defineCard() {
         }
         .elabel .d {
           color: #7dd3fc;
+        }
+        .elabel.v {
+          transform: translate(0, -50%);
+          align-items: flex-start;
+        }
+        .vswitch {
+          margin-left: auto;
+          display: inline-flex;
+          gap: 2px;
+          padding: 2px;
+          border-radius: 10px;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid var(--ltc-border);
+        }
+        .vbtn {
+          font: inherit;
+          font-size: 0.72rem;
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 3px 8px;
+          border: 0;
+          border-radius: 8px;
+          background: transparent;
+          color: var(--ltc-dim);
+          cursor: pointer;
+        }
+        .vbtn ha-icon {
+          --mdc-icon-size: 15px;
+          --c: currentColor;
+          filter: none;
+        }
+        .vbtn.on {
+          background: rgba(34, 211, 238, 0.16);
+          color: #67e8f9;
+          box-shadow: 0 0 8px rgba(34, 211, 238, 0.35);
+        }
+        @media (max-width: 600px) {
+          .vbtn span {
+            display: none;
+          }
         }
         .legend {
           display: flex;

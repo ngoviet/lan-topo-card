@@ -162,3 +162,36 @@ test("initialExpanded: all = mọi node có cổng; single chỉ giữ node đ�
   assert.deepEqual([...initialExpanded(topo, ["c", "b"], true)], ["c", "b"]);
   assert.deepEqual([...initialExpanded(topo, undefined, false)], []);
 });
+
+test("chain: stack — Internet → Modem → CCR xếp dọc 1 cột, sơ đồ hẹp lại, không chồng ô", () => {
+  const topo = normalizeConfig(home);
+  const trees = buildTree(topo, new Set(["crs326"]), new Map([["crs326", ["ether9", "ether11"].map(port)]]));
+  const row = layoutHorizontal(trees);
+  const stack = layoutHorizontal(trees, LAYOUT, { chain: "stack" });
+  const by = Object.fromEntries(stack.boxes.filter((b) => b.kind === "node").map((b) => [b.id, b]));
+  assert.equal(by.internet.x, LAYOUT.pad);
+  assert.equal(by.modems.x, LAYOUT.pad);
+  assert.equal(by.ccr.x, LAYOUT.pad);
+  assert.ok(by.internet.y < by.modems.y && by.modems.y < by.ccr.y); // trên → dưới theo chiều dữ liệu
+  assert.equal(by.crs310.x, LAYOUT.pad + LAYOUT.nodeW + LAYOUT.colGap); // nhánh rẽ ngay cột kế
+  assert.equal(stack.width, row.width - 2 * (LAYOUT.nodeW + LAYOUT.colGap));
+  assert.ok(stack.boxes.every((b) => b.y >= LAYOUT.pad - 0.01 && b.y + b.h <= stack.height));
+  for (let i = 0; i < stack.boxes.length; i++)
+    for (let j = i + 1; j < stack.boxes.length; j++) assert.ok(!overlaps(stack.boxes[i], stack.boxes[j]));
+  const v = stack.links.filter((l) => l.dir === "v");
+  assert.deepEqual(v.map((l) => l.key).sort(), ["ccr", "modems"]);
+  assert.equal(linkPath(v[0], "horizontal").startsWith("M"), true);
+  assert.match(linkPath(v[0], "horizontal"), /^M[\d.]+ [\d.]+V[\d.]+$/);
+});
+
+test("chain: stack dừng ở node rẽ nhánh hoặc node đang mở cột cổng", () => {
+  const topo = normalizeConfig(home);
+  // CCR mở cột cổng → chỉ Internet + Modem chồng lên CCR? Không: CCR có con là lá cổng + 2 switch → chuỗi dừng ở CCR
+  const trees = buildTree(topo, new Set(["ccr"]), new Map([["ccr", [port("ether9")]]]));
+  const stack = layoutHorizontal(trees, LAYOUT, { chain: "stack" });
+  const by = Object.fromEntries(stack.boxes.filter((b) => b.kind === "node").map((b) => [b.id, b]));
+  assert.equal(by.ccr.x, LAYOUT.pad);
+  const flat = normalizeConfig({ nodes: [{ id: "a" }, { id: "b" }, { id: "c" }], edges: [{ from: "a", to: "b" }, { from: "a", to: "c" }] });
+  const t2 = layoutHorizontal(buildTree(flat, new Set(), new Map()), LAYOUT, { chain: "stack" });
+  assert.ok(t2.links.every((l) => l.dir !== "v")); // gốc rẽ nhánh ngay → không có chuỗi
+});
