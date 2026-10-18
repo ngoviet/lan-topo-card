@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.3.3";
+export const VERSION = "0.4.0";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -498,6 +498,52 @@ export function groupClients(clients, { by = "ap", sort = "name", ssid = null, b
     .map(([name, items]) => ({ name, clients: items.sort(cmp) }));
 }
 
+// ═══════════════════════════════ Ai đang dùng nhiều ═══════════════════════════════
+
+/** % thanh mức dùng theo log10: 10 kbps → 0, 1 Gbps → 100. */
+export function usagePct(bps) {
+  if (!bps || bps <= 1e4) return 0;
+  return Math.min(100, (Math.log10(bps / 1e4) / 5) * 100);
+}
+
+/** Mức "nóng" của cổng theo tổng lưu lượng: 0 bình thường, 1 ≥ warm, 2 ≥ hot (Mbps). */
+export function heatLevel(bps, { warmMbps = 10, hotMbps = 50 } = {}) {
+  if (!bps) return 0;
+  if (bps >= hotMbps * 1e6) return 2;
+  if (bps >= warmMbps * 1e6) return 1;
+  return 0;
+}
+
+/**
+ * Xếp hạng thiết bị theo tổng lưu lượng ↓+↑ trên mọi cổng có thiết bị (bỏ cổng nối giữa các
+ * node và cổng ẩn). ↓ = về phía thiết bị = tx của cổng switch.
+ */
+export function topTalkers(topo, portsByNode, { limit = 5, idleBps = 20e3 } = {}) {
+  const rows = [];
+  for (const [nodeId, ports] of portsByNode) {
+    const node = topo.nodes.get(nodeId);
+    const hidden = linkPortsOf(topo, nodeId);
+    for (const p of ports) {
+      const meta = node.portNames[p.name] || {};
+      if (meta.hide || hidden.has(p.name) || p.linked === false) continue;
+      const down = p.txBps ?? 0;
+      const up = p.rxBps ?? 0;
+      if (down + up <= idleBps) continue;
+      rows.push({
+        nodeId,
+        nodeName: node.name,
+        port: p,
+        name: meta.name || p.device || p.comment || p.name,
+        icon: meta.icon || null,
+        down,
+        up,
+        total: down + up,
+      });
+    }
+  }
+  return rows.sort((a, b) => b.total - a.total).slice(0, limit);
+}
+
 // ═══════════════════════════════ Bố cục ═══════════════════════════════
 
 export const LAYOUT = {
@@ -657,6 +703,8 @@ const STRINGS = {
     no_link: "Không có link",
     poe: "PoE",
     moving: "đường chạy = có lưu lượng",
+    top: "Đang dùng mạng nhiều nhất",
+    top_none: "Không có thiết bị nào đang dùng đáng kể",
     disabled: "cổng tắt",
     traffic: "sáng viền = có lưu lượng",
     clients: (n) => `${n} thiết bị`,
@@ -676,6 +724,8 @@ const STRINGS = {
     no_link: "No link",
     poe: "PoE",
     moving: "moving line = traffic",
+    top: "Top talkers",
+    top_none: "No device is using noticeable bandwidth",
     disabled: "port disabled",
     traffic: "glowing edge = traffic",
     clients: (n) => `${n} clients`,
@@ -839,6 +889,8 @@ async function defineCard() {
       const locale = this.hass.locale?.language || "en";
       const states = this.hass.states;
       const idleBps = (cfg.idle_kbps ?? 20) * 1e3;
+      this._idleBpsTop = idleBps;
+      this._heatOpts = { warmMbps: cfg.warm_mbps ?? 10, hotMbps: cfg.hot_mbps ?? 50 };
       this._tracked = new Set();
 
       // Cổng từng node
@@ -889,6 +941,7 @@ async function defineCard() {
                 </div>`
               : ""}
           </div>
+          ${cfg.top === 0 || cfg.top === false ? "" : this._renderTop(portsByNode, T, locale)}
           ${cfg.legend === false ? "" : this._renderLegend(T)}
         </ha-card>
       `;
@@ -938,9 +991,11 @@ async function defineCard() {
       // Tốc độ link là chip riêng cạnh tên (không bị cắt "…" như dòng phụ).
       const chip = p.linked ? speedLabel(p.speedMbps) : T.no_link;
       const sub = [label !== p.name ? p.name : null, ip].filter(Boolean).join(" · ");
+      const total = (p.txBps ?? 0) + (p.rxBps ?? 0);
+      const heat = heatLevel(total, this._heatOpts);
       return html`<div
-        class="port ${p.linked ? "" : "down"} ${p.entity ? "clickable" : ""}"
-        style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;--c:${color}"
+        class="port ${p.linked ? "" : "down"} ${p.entity ? "clickable" : ""} heat${heat}"
+        style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;--c:${color};--u:${usagePct(total).toFixed(1)}%"
         @click=${() => this._moreInfo(p.entity)}
       >
         <div class="pmain">
@@ -952,6 +1007,30 @@ async function defineCard() {
         <div class="prate">↓${formatRate(p.txBps, locale)}</div>
         <div class="psub">${sub}</div>
         <div class="prate up">↑${formatRate(p.rxBps, locale)}</div>
+      </div>`;
+    }
+
+    _renderTop(portsByNode, T, locale) {
+      const limit = Number.isFinite(Number(this._config.top)) ? Number(this._config.top) : 5;
+      const rows = topTalkers(this._topo, portsByNode, { limit, idleBps: this._idleBpsTop });
+      return html`<div class="top">
+        <div class="thead"><ha-icon icon="mdi:podium"></ha-icon>${T.top}</div>
+        ${rows.length
+          ? rows.map((r, i) => {
+              const pct = usagePct(r.total);
+              const downPart = r.total ? (r.down / r.total) * pct : 0;
+              const heat = heatLevel(r.total, this._heatOpts);
+              return html`<div class="trow heat${heat} ${r.port.entity ? "clickable" : ""}" @click=${() => this._moreInfo(r.port.entity)}>
+                <span class="rank">${i + 1}</span>
+                <div class="tname">
+                  <span class="n">${r.icon ? html`<ha-icon .icon=${r.icon}></ha-icon>` : ""}${r.name}</span>
+                  <span class="w">${r.nodeName} · ${r.port.name}</span>
+                </div>
+                <div class="tbar"><i class="d" style="width:${downPart.toFixed(1)}%"></i><i class="u" style="width:${(pct - downPart).toFixed(1)}%"></i></div>
+                <div class="tval"><span class="d">↓${formatRate(r.down, locale)}</span><span class="u">↑${formatRate(r.up, locale)}</span></div>
+              </div>`;
+            })
+          : html`<div class="tnone">${T.top_none}</div>`}
       </div>`;
     }
 
@@ -1266,6 +1345,161 @@ async function defineCard() {
         }
         .port.down {
           opacity: 0.7;
+        }
+        /* thanh mức dùng ở đáy ô cổng (log: 10 kbps → 0, 1 Gbps → 100%) */
+        .port::after {
+          content: "";
+          position: absolute;
+          left: 0;
+          bottom: 0;
+          height: 3px;
+          width: var(--u, 0%);
+          background: linear-gradient(90deg, #22d3ee, #a78bfa, #f472b6);
+          box-shadow: 0 0 6px #a78bfa;
+          border-radius: 0 2px 2px 0;
+          transition: width 0.6s;
+        }
+        .port.heat1 {
+          border-top-color: #fbbf24;
+          border-right-color: #fbbf24;
+          border-bottom-color: #fbbf24;
+          box-shadow: 0 0 14px rgba(251, 191, 36, 0.55);
+        }
+        .port.heat1 .prate,
+        .port.heat2 .prate {
+          font-weight: 700;
+          font-size: 0.76rem;
+        }
+        .port.heat2 {
+          border-top-color: #fb7185;
+          border-right-color: #fb7185;
+          border-bottom-color: #fb7185;
+          animation: ltc-hot 1.6s ease-in-out infinite;
+        }
+        @keyframes ltc-hot {
+          50% {
+            box-shadow: 0 0 22px rgba(251, 113, 133, 0.85);
+          }
+        }
+        .top {
+          margin: 4px 14px 2px;
+          padding: 8px 10px;
+          border-radius: 14px;
+          background: rgba(14, 24, 46, 0.7);
+          border: 1px solid var(--ltc-border);
+        }
+        .thead {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 0.82rem;
+          font-weight: 600;
+          margin-bottom: 4px;
+        }
+        .thead ha-icon {
+          --c: #fbbf24;
+          --mdc-icon-size: 16px;
+        }
+        .trow {
+          display: grid;
+          grid-template-columns: 22px minmax(120px, 1.2fr) minmax(60px, 2fr) auto;
+          align-items: center;
+          gap: 10px;
+          padding: 4px 4px;
+          border-radius: 8px;
+        }
+        .trow.clickable {
+          cursor: pointer;
+        }
+        .trow:hover {
+          background: rgba(255, 255, 255, 0.04);
+        }
+        .rank {
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          display: grid;
+          place-items: center;
+          font-size: 0.72rem;
+          font-weight: 700;
+          background: rgba(255, 255, 255, 0.08);
+        }
+        .trow.heat1 .rank {
+          background: #fbbf24;
+          color: #1a1205;
+        }
+        .trow.heat2 .rank {
+          background: #fb7185;
+          color: #1a0509;
+          box-shadow: 0 0 8px #fb7185;
+        }
+        .tname {
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
+        }
+        .tname .n {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .tname .n ha-icon {
+          --mdc-icon-size: 14px;
+          --c: #94a3b8;
+        }
+        .tname .w {
+          font-size: 0.68rem;
+          color: var(--ltc-dim);
+        }
+        .tbar {
+          height: 8px;
+          border-radius: 4px;
+          background: rgba(255, 255, 255, 0.07);
+          overflow: hidden;
+          display: flex;
+        }
+        .tbar i {
+          display: block;
+          height: 100%;
+          transition: width 0.6s;
+        }
+        .tbar i.d {
+          background: #38bdf8;
+          box-shadow: 0 0 6px #38bdf8;
+        }
+        .tbar i.u {
+          background: var(--ltc-up);
+          box-shadow: 0 0 6px var(--ltc-up);
+        }
+        .tval {
+          display: flex;
+          gap: 8px;
+          font-size: 0.74rem;
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
+        }
+        .tval .d {
+          color: #7dd3fc;
+        }
+        .tval .u {
+          color: var(--ltc-up);
+        }
+        .tnone {
+          font-size: 0.76rem;
+          color: var(--ltc-dim);
+        }
+        @media (max-width: 600px) {
+          .trow {
+            grid-template-columns: 22px 1fr auto;
+          }
+          .tbar {
+            grid-column: 2 / 4;
+          }
         }
         .port ha-icon {
           --mdc-icon-size: 14px;

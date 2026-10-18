@@ -83,6 +83,8 @@ edges:
 | `idle_kbps` | `20` | Lưu lượng dưới mức này thì đường đứng yên |
 | `show_all_ports` | `false` | Hiện cả cổng không có link/lưu lượng |
 | `legend` | `true` | Hiện chú thích màu |
+| `top` | `5` | Bảng "Đang dùng mạng nhiều nhất" dưới sơ đồ: thiết bị xếp theo tổng ↓+↑ (thanh theo thang log); `0` để ẩn |
+| `warm_mbps`, `hot_mbps` | `10`, `50` | Ô cổng sáng cam khi tổng ↓+↑ vượt `warm_mbps`, nhấp nháy đỏ khi vượt `hot_mbps`; mọi ô cổng có thanh mức dùng ở đáy |
 | `motion` | `on` | `on`: hạt luôn chạy (hạt là thông tin lưu lượng); `auto`: dừng khi hệ điều hành bật giảm chuyển động (Windows tắt *Animation effects*); `off`: không bao giờ chạy |
 | `language` | theo HA | `vi` hoặc `en` |
 
