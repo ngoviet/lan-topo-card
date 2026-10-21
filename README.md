@@ -20,6 +20,17 @@ and stand still when idle.
   other switches. Ports are colored by link speed, with a built-in legend.
 - **Always fits its frame**: scales down to the card width on load and on resize, and switches to a vertical layout
   on phones (< 600 px).
+- **Seven views**, picked from the header buttons (remembered per browser):
+
+  | View | `layout` | Best for |
+  |---|---|---|
+  | Auto | `auto` | Tree on wide cards, list on phones |
+  | Tree | `horizontal` | Left → right tree, device columns next to each switch |
+  | Top-down | `down` | Org-chart style: switches in rows, each switch's devices stacked below it (compact width) |
+  | Hub | `radial` | The first branching node (usually the router) in the center, switches and devices on rings around it; the Internet branch sits on top |
+  | Arc | `arc` | Same as Hub, fanned over a half circle above the router |
+  | Cards | `cards` | One card per device with its ports, laid out in a grid (masonry) that fits any width, phones included |
+  | List | `vertical` | Indented list |
 - Read-only: the card never toggles anything (PoE switches are only shown as ⚡).
 - No build step: one ES module, Lit taken from the Home Assistant frontend.
 
@@ -81,9 +92,9 @@ edges:
 | `edges` | `[]` | Links between nodes. The topology must be a tree (one parent per node) |
 | `expanded` | `[]` | Node ids opened on load, or `all` (every node with ports; implies `expand: multi`) |
 | `expand` | `single` | `single`: opening a switch closes the others; `multi`: keep several open |
-| `layout` | `auto` | `auto`, `horizontal`, `vertical` (default for the view switch) |
+| `layout` | `auto` | `auto`, `horizontal`, `down`, `radial`, `arc`, `cards`, `vertical` (default for the view switch) |
 | `chain` | `stack` | `stack`: the leading chain of single-child nodes (e.g. Internet → modem → router) is stacked in one column, saving width; `row`: one column per node |
-| `view_switch` | `true` | Buttons in the header to pick *Auto* / *Tree* / *List*; the choice is remembered per browser |
+| `view_switch` | `true` | Buttons in the header to pick a view (only the active one shows its name; hover for the others); the choice is remembered per browser |
 | `breakpoint` | `600` | Below this card width (px), `auto` uses the vertical layout |
 | `min_scale` | `0.55` | `auto` switches to vertical when the tree would need to shrink below this |
 | `max_scale` | `1` | Never scale the tree up beyond this |

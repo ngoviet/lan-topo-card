@@ -195,3 +195,125 @@ test("chain: stack dừng ở node rẽ nhánh hoặc node đang mở cột cổ
   const t2 = layoutHorizontal(buildTree(flat, new Set(), new Map()), LAYOUT, { chain: "stack" });
   assert.ok(t2.links.every((l) => l.dir !== "v")); // gốc rẽ nhánh ngay → không có chuỗi
 });
+
+// ── Kiểu vòng (radial / arc) ──────────────────────────────────────────────
+import { layoutRadial, allocateAngles, hubRoot, layoutDown, layoutCards, VIEWS } from "../dist/lan-topo-card.js";
+
+function radialTrees() {
+  const topo = normalizeConfig(home);
+  return buildTree(topo, new Set(["crs326", "gs"]), new Map([
+    ["crs326", ["ether9", "ether11", "ether12", "ether13"].map(port)],
+    ["gs", ["1", "2", "3", "4"].map(port)],
+  ]));
+}
+
+test("allocateAngles: con nằm trọn trong nan quạt cha, không chồng nhau, phủ kín", () => {
+  const [root] = radialTrees();
+  const count = (it) => (it._leaves = it.children.length ? it.children.reduce((n, c) => n + count(c), 0) : 1);
+  count(root);
+  allocateAngles(root, 0, 2 * Math.PI);
+  const check = (it) => {
+    if (!it.children.length) return;
+    const eps = 1e-9;
+    let prev = it._a0;
+    for (const c of it.children) {
+      assert.ok(c._a0 >= it._a0 - eps && c._a1 <= it._a1 + eps, `${c.key} ra ngoài nan quạt ${it.key}`);
+      assert.ok(c._a1 > c._a0, `${c.key} có nan quạt rỗng`);
+      assert.ok(c._a0 >= prev - eps, `${c.key} chồng lên anh em`);
+      prev = c._a1;
+      check(c);
+    }
+  };
+  check(root);
+});
+
+const noOverlap = (boxes) => {
+  for (let i = 0; i < boxes.length; i++)
+    for (let j = i + 1; j < boxes.length; j++) assert.ok(!overlaps(boxes[i], boxes[j]), `${boxes[i].key} đè ${boxes[j].key}`);
+};
+
+test("hubRoot: router (node rẽ nhánh đầu tiên) làm tâm, chuỗi Modem → Internet thành nhánh, cạnh ghi ở via", () => {
+  const [root] = radialTrees();
+  const hub = hubRoot(root);
+  assert.equal(hub.id, "ccr");
+  assert.equal(hub.children[0].id, "modems");
+  assert.equal(hub.children[0].via.key, root.children[0].children[0].edge.key); // cạnh modem → ccr
+  assert.equal(hub.children[0].children[0].id, "internet");
+  assert.equal(hub.children[0].children[0].via.key, root.children[0].edge.key); // cạnh internet → modem
+  const flat = normalizeConfig({ nodes: [{ id: "a" }, { id: "b" }, { id: "c" }], edges: [{ from: "a", to: "b" }, { from: "a", to: "c" }] });
+  const [t] = buildTree(flat, new Set(), new Map());
+  assert.equal(hubRoot(t), t); // gốc rẽ nhánh ngay → giữ nguyên
+});
+
+test("layoutRadial: router ở tâm, tầng càng sâu càng xa tâm, không ô nào đè nhau", () => {
+  for (const variant of ["radial", "arc"]) {
+    const lay = layoutRadial(radialTrees(), { variant });
+    assert.equal(lay.mode, variant);
+    const c = (b) => [b.x + b.w / 2, b.y + b.h / 2];
+    const by = Object.fromEntries(lay.boxes.filter((b) => b.kind === "node").map((b) => [b.id, b]));
+    const [ox, oy] = c(by.ccr);
+    const dist = (b) => Math.hypot(c(b)[0] - ox, c(b)[1] - oy);
+    assert.ok(Math.abs(dist(by.modems) - dist(by.crs310)) < 0.01); // cùng vòng 1
+    assert.ok(dist(by.modems) < dist(by.internet) && dist(by.crs310) < dist(by.gs));
+    noOverlap(lay.boxes);
+    assert.ok(Math.min(...lay.boxes.map((b) => b.x)) >= LAYOUT.pad - 0.01);
+    assert.ok(Math.min(...lay.boxes.map((b) => b.y)) >= LAYOUT.pad - 0.01);
+    assert.ok(lay.boxes.every((b) => b.x + b.w <= lay.width + 0.01 && b.y + b.h <= lay.height + 0.01));
+    assert.equal(lay.links.length, lay.boxes.length - 1);
+    assert.match(linkPath(lay.links[0], variant), /^M[-\d.]+ [-\d.]+C/);
+    // Nhánh phía Internet vẽ ngược: đường bắt đầu ở Internet, kết thúc ở modem.
+    const li = lay.links.find((l) => l.key === "internet");
+    assert.equal(li.edge.to, "modems");
+    assert.deepEqual([li.x1, li.y1].map(Math.round), c(by.internet).map(Math.round));
+    if (variant === "arc") assert.ok(lay.boxes.every((b) => b.y + b.h / 2 <= oy + 0.01), "vòng cung: mọi node ở nửa trên tâm");
+  }
+});
+
+test("layoutDown: node trên, cột cổng chồng dưới, node con xếp hàng bên phải, không đè", () => {
+  const lay = layoutDown(radialTrees());
+  assert.equal(lay.mode, "down");
+  const by = Object.fromEntries(lay.boxes.filter((b) => b.kind === "node").map((b) => [b.id, b]));
+  assert.ok(by.internet.y < by.modems.y && by.modems.y < by.ccr.y && by.ccr.y < by.crs310.y);
+  assert.equal(by.internet.x, by.ccr.x); // chuỗi không cổng: thẳng một cột
+  assert.equal(by.crs310.y, by.crs326.y); // anh em cùng hàng
+  const p326 = lay.boxes.filter((b) => b.kind === "port" && b.nodeId === "crs326");
+  assert.ok(p326.every((b) => b.x === by.crs326.x + LAYOUT.dIndent && b.y > by.crs326.y));
+  const pgs = lay.boxes.filter((b) => b.kind === "port" && b.nodeId === "gs");
+  assert.ok(pgs.every((b) => b.x === by.gs.x + LAYOUT.dIndent));
+  noOverlap(lay.boxes);
+  assert.ok(lay.boxes.every((b) => b.x + b.w <= lay.width + 0.01 && b.y + b.h <= lay.height + 0.01));
+  const toCrs326 = lay.links.find((l) => l.key === "crs326");
+  assert.match(linkPath(toCrs326, "down"), /^M[\d.]+ [\d.]+L.*Q.*L[\d.]+ [\d.]+$/);
+  assert.match(linkPath(lay.links.find((l) => l.key === "modems"), "down"), /^M[\d.]+ [\d.]+L[\d.]+ [\d.]+$/); // thẳng
+});
+
+test("layoutCards: mỗi node một thẻ, số cột theo bề ngang, cổng nằm trong thẻ của nó", () => {
+  const wide = layoutCards(radialTrees(), 1200);
+  assert.equal(wide.mode, "cards");
+  assert.equal(wide.frames.length, 6);
+  assert.ok(wide.width <= 1200 + 0.01);
+  noOverlap(wide.frames);
+  noOverlap(wide.boxes);
+  for (const b of wide.boxes) {
+    const f = wide.frames.find((f) => f.key === (b.kind === "port" ? b.nodeId : b.id));
+    assert.ok(b.x >= f.x && b.y >= f.y && b.x + b.w <= f.x + f.w + 0.01 && b.y + b.h <= f.y + f.h + 0.01, `${b.key} ra ngoài thẻ`);
+  }
+  const phone = layoutCards(radialTrees(), 360);
+  assert.equal(new Set(phone.frames.map((f) => f.x)).size, 1); // 1 cột
+  assert.ok(phone.width <= 360 + 0.01);
+  assert.equal(linkPath(phone.links[0], "cards").includes("Q"), true);
+});
+
+test("fitLayout: chọn radial/arc theo yêu cầu, co vừa bề ngang", () => {
+  const lay = fitLayout(radialTrees(), 1200, { layout: "radial" });
+  assert.equal(lay.mode, "radial");
+  assert.ok(lay.width * lay.scale <= 1200 + 0.01);
+});
+
+test("fitLayout: cây dọc / thẻ theo yêu cầu, mọi kiểu trên nút chuyển đều có bố cục", () => {
+  for (const [mode] of VIEWS) {
+    const lay = fitLayout(radialTrees(), 1000, { layout: mode });
+    if (mode !== "auto") assert.equal(lay.mode, mode);
+    assert.ok(lay.width * lay.scale <= 1000 + 0.01, mode);
+  }
+});

@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.5.0";
+export const VERSION = "0.6.0";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -556,6 +556,22 @@ export const LAYOUT = {
   rowGap: 22,
   portGap: 8,
   chainGap: 44, // khoảng dọc giữa các node của chuỗi xếp chồng (đủ chỗ nhãn ↓/↑ bên cạnh)
+  // vòng tròn / vòng cung
+  ringPad: 34, // khe hở theo bán kính giữa 2 vòng
+  arcPad: 10, // khe hở theo chiều cung giữa 2 ô cạnh nhau trên cùng một vòng
+  rNodeW: 150,
+  rNodeH: 64,
+  rPortW: 164,
+  rPortH: 38,
+  // cây dọc (trên → dưới)
+  dIndent: 28, // cột cổng thụt vào so với node
+  dColGap: 26,
+  dRowGap: 58, // node → hàng node con (đủ chỗ nhãn ↓/↑ cạnh đoạn thả xuống)
+  // thẻ
+  cardMinW: 270,
+  cardMaxW: 380,
+  cardPad: 8,
+  cardGap: 12,
   // dọc (điện thoại)
   vIndent: 18,
   vNodeH: 70,
@@ -670,6 +686,166 @@ export function layoutHorizontal(trees, L = LAYOUT, { chain = "row" } = {}) {
   return { boxes, links, width: width + L.pad, height: top + L.pad, mode: "horizontal" };
 }
 
+/** Số lá của một nhánh (node không con cũng tính là 1 lá). Ghi vào it._leaves. */
+function countLeaves(it) {
+  it._leaves = it.children.length ? it.children.reduce((n, c) => n + countLeaves(c), 0) : 1;
+  return it._leaves;
+}
+
+/**
+ * Chia nan quạt [a0, a1] (radian) của `it` cho các con theo trọng số nhánh: it._wt nếu có, không
+ * thì số lá (chuẩn của cây vòng: lá rải đều trên vòng ngoài, nhánh đông thiết bị được cung rộng).
+ */
+export function allocateAngles(it, a0, a1) {
+  it._a0 = a0;
+  it._a1 = a1;
+  const weight = (c) => c._wt ?? c._leaves;
+  const total = it.children.reduce((n, c) => n + weight(c), 0);
+  let a = a0;
+  for (const c of it.children) {
+    const b = a + ((a1 - a0) * weight(c)) / total;
+    allocateAngles(c, a, b);
+    a = b;
+  }
+}
+
+/**
+ * Gốc cho kiểu vòng: node rẽ nhánh đầu tiên (thường là router) ra giữa, chuỗi phía trên nó
+ * (Modem → Internet) thành một nhánh như mọi nhánh khác. Cạnh của chuỗi đó ghi vào `via` và vẽ
+ * ngược chiều (từ phía Internet vào), để hạt ↓ vẫn chạy theo hướng dữ liệu thật.
+ */
+export function hubRoot(root) {
+  const chain = [root];
+  for (let cur = root; cur.children.length === 1 && cur.children[0].kind === "node"; ) {
+    cur = cur.children[0];
+    chain.push(cur);
+  }
+  if (chain.length < 2) return root;
+  let up = null;
+  for (let k = 0; k < chain.length - 1; k++) up = { ...chain[k], children: up ? [up] : [], via: chain[k + 1].edge };
+  const head = chain[chain.length - 1];
+  return { ...head, children: [up, ...head.children] };
+}
+
+/**
+ * Bố cục vòng tròn (variant "radial": node trung tâm ở giữa, các tầng là vòng đồng tâm quanh nó)
+ * hoặc vòng cung ("arc": trung tâm ở đáy, toả lên nửa trên 180°). Bán kính từng vòng tính riêng:
+ * đủ xa vòng trong theo kích thước ô, và đủ dài để các ô trên vòng không đè nhau (ô ở đỉnh/đáy
+ * vòng chiếm cả bề ngang, ô ở hai bên chỉ chiếm bề cao).
+ */
+export function layoutRadial(trees, { variant = "radial", hub = true } = {}, L = LAYOUT) {
+  // Nhiều gốc → gộp dưới 1 gốc ảo để chia chung một vòng.
+  const root = trees.length === 1 ? (hub ? hubRoot(trees[0]) : trees[0]) : { kind: "virtual", key: "__root", children: trees };
+  const span = variant === "arc" ? Math.PI : 2 * Math.PI;
+  countLeaves(root);
+  const size = (it) => (it.kind === "virtual" ? [0, 0] : it.kind === "port" ? [L.rPortW, L.rPortH] : [L.rNodeW, L.rNodeH]);
+  let byDepth;
+  const walk = (it, d) => {
+    it._d = d;
+    it._a = (it._a0 + it._a1) / 2;
+    (byDepth[d] ||= []).push(it);
+    it.children.forEach((c) => walk(c, d + 1));
+  };
+  // Vòng tròn: nhánh đầu (phía Internet) căn giữa ở đỉnh. Vòng cung: quét từ trái (π) qua đỉnh sang phải.
+  const allocate = () => {
+    const first = root.children[0];
+    const w = (it) => it._wt ?? it._leaves;
+    const start = variant === "arc" ? Math.PI : -Math.PI / 2 - (first ? (span * w(first)) / w(root) / 2 : 0);
+    allocateAngles(root, start, start + span);
+    byDepth = [];
+    walk(root, 0);
+  };
+  allocate();
+  // Lượt 2: lá ở đỉnh/đáy vòng chiếm cả bề ngang ô, lá ở hai bên chỉ chiếm bề cao → cho mỗi lá góc
+  // tỉ lệ với bề rộng thật của nó (chia cho tầng: vòng ngoài dài hơn nên cần ít góc hơn).
+  const weigh = (it) =>
+    (it._wt = it.children.length ? it.children.reduce((n, c) => n + weigh(c), 0) : (tang(it) + L.arcPad) / Math.max(1, it._d));
+  for (let pass = 0; pass < 2; pass++) {
+    weigh(root);
+    allocate();
+  }
+  // Bề rộng ô đo theo phương tiếp tuyến (dọc cung) và theo phương bán kính, tại góc của ô.
+  function tang(it) {
+    const [w, h] = size(it);
+    return Math.abs(w * Math.sin(it._a)) + Math.abs(h * Math.cos(it._a));
+  }
+  const radial = (it) => {
+    const [w, h] = size(it);
+    return Math.abs(w * Math.cos(it._a)) + Math.abs(h * Math.sin(it._a));
+  };
+  const radius = [0];
+  let prevRad = Math.max(...size(root));
+  for (let d = 1; d < byDepth.length; d++) {
+    const items = byDepth[d];
+    const rad = Math.max(...items.map(radial));
+    const fitRing = radius[d - 1] + (prevRad + rad) / 2 + L.ringPad;
+    const fitArc = Math.max(...items.map((it) => (tang(it) + L.arcPad) / Math.max(1e-6, it._a1 - it._a0)));
+    radius[d] = Math.max(fitRing, fitArc);
+    prevRad = rad;
+  }
+
+  const boxes = [];
+  const links = [];
+  const polar = (r, a) => [r * Math.cos(a), r * Math.sin(a)];
+  const place = (it, parent) => {
+    const a = it._a;
+    const r = radius[it._d];
+    const [x, y] = polar(r, a);
+    if (it.kind !== "virtual") {
+      const [w, h] = size(it);
+      boxes.push({ kind: it.kind, key: it.key, id: it.id, nodeId: it.nodeId, port: it.port, edge: it.edge, x: x - w / 2, y: y - h / 2, w, h });
+      if (parent && parent.kind !== "virtual") {
+        const pa = parent._a;
+        const pr = radius[parent._d];
+        const [px, py] = polar(pr, pa);
+        // Nhãn đúng điểm giữa đường cong: Bézier bậc 3 tại t = ½ = (P0 + 3·P1 + 3·P2 + P3) / 8,
+        // P1/P2 là 2 điểm điều khiển trên vòng giữa (xem linkPath).
+        const rm = (pr + r) / 2;
+        const mid = [[pr, pa, 1], [rm, pa, 3], [rm, a, 3], [r, a, 1]].reduce(
+          ([sx, sy], [rr, aa, k]) => [sx + (k * rr * Math.cos(aa)) / 8, sy + (k * rr * Math.sin(aa)) / 8],
+          [0, 0],
+        );
+        const [lx, ly] = mid;
+        const link = { key: it.key, kind: it.kind, edge: it.via || it.edge, port: it.port, nodeId: it.nodeId, lx, ly, lcls: "c" };
+        // Nhánh phía Internet: vẽ từ con về cha để chiều đường = chiều dữ liệu ↓.
+        if (it.via) Object.assign(link, { polar: { r1: r, a1: a, r2: pr, a2: pa }, x1: x, y1: y, x2: px, y2: py });
+        else Object.assign(link, { polar: { r1: pr, a1: pa, r2: r, a2: a }, x1: px, y1: py, x2: x, y2: y });
+        links.push(link);
+      }
+    }
+    it.children.forEach((c) => place(c, it));
+  };
+  place(root, null);
+
+  // Dời gốc toạ độ: khung bao các ô bắt đầu ở (pad, pad).
+  const minX = Math.min(...boxes.map((b) => b.x));
+  const minY = Math.min(...boxes.map((b) => b.y));
+  const dx = L.pad - minX;
+  const dy = L.pad - minY;
+  for (const b of boxes) {
+    b.x += dx;
+    b.y += dy;
+  }
+  for (const l of links) {
+    l.x1 += dx;
+    l.y1 += dy;
+    l.x2 += dx;
+    l.y2 += dy;
+    l.lx += dx;
+    l.ly += dy;
+    l.polar.cx = dx;
+    l.polar.cy = dy;
+  }
+  const width = Math.max(...boxes.map((b) => b.x + b.w)) + L.pad;
+  const height = Math.max(...boxes.map((b) => b.y + b.h)) + L.pad;
+  const clean = (it) => {
+    for (const k of ["_a0", "_a1", "_a", "_d", "_leaves", "_wt"]) delete it[k];
+    it.children.forEach(clean);
+  };
+  clean(root);
+  return { boxes, links, width, height, mode: variant };
+}
+
 /** Bố cục dọc (điện thoại): danh sách thụt lề, đường nối chạy dọc mép trái. */
 export function layoutVertical(trees, containerWidth, L = LAYOUT) {
   const boxes = [];
@@ -699,6 +875,120 @@ export function layoutVertical(trees, containerWidth, L = LAYOUT) {
   return { boxes, links, width: containerWidth, height: y - L.vGap + L.pad, mode: "vertical" };
 }
 
+/** Đường nối kiểu danh sách: từ đáy node xuống theo trục `sx`, rẽ phải vào giữa ô con. */
+function listLink(it, parentBox, box, sx) {
+  return {
+    key: it.key, kind: it.kind, edge: it.edge, port: it.port, nodeId: it.nodeId, dir: "list",
+    x1: sx, y1: parentBox.y + parentBox.h,
+    x2: box.x, y2: box.y + box.h / 2,
+  };
+}
+
+/**
+ * Cây dọc (trên → dưới, kiểu sơ đồ tổ chức gọn): dưới mỗi node là cột cổng thiết bị của nó
+ * (xếp chồng như danh sách), các node con xếp thành hàng bên phải cột đó. Lá (thiết bị) chồng
+ * dọc nên sơ đồ không bị kéo dài ngang theo số thiết bị như cây dọc thông thường.
+ */
+export function layoutDown(trees, L = LAYOUT) {
+  const isPort = (c) => c.kind === "port";
+  const measure = (it) => {
+    let w = it.children.some(isPort) ? L.dIndent + L.portW : 0;
+    for (const c of it.children.filter((c) => !isPort(c))) w += (w ? L.dColGap : 0) + measure(c);
+    it._w = Math.max(L.nodeW, w);
+    return it._w;
+  };
+  const boxes = [];
+  const links = [];
+  let width = 0;
+  let height = 0;
+  const place = (it, x, y, parentBox) => {
+    const box = { kind: "node", key: it.key, id: it.id, edge: it.edge, x, y, w: L.nodeW, h: L.nodeH };
+    boxes.push(box);
+    const ports = it.children.filter(isPort);
+    const kids = it.children.filter((c) => !isPort(c));
+    // Cổng: chồng dưới node, nối từ trục bên trái như danh sách.
+    let py = y + L.nodeH + 20;
+    for (const c of ports) {
+      const pb = { kind: "port", key: c.key, nodeId: c.nodeId, port: c.port, x: x + L.dIndent, y: py, w: L.portW, h: L.portH };
+      boxes.push(pb);
+      links.push(listLink(c, box, pb, x + 14));
+      py += L.portH + L.portGap;
+    }
+    width = Math.max(width, x + (ports.length ? L.dIndent + L.portW : L.nodeW));
+    height = Math.max(height, ports.length ? py - L.portGap : y + L.nodeH);
+    // Node con: một hàng bên phải cột cổng; đường đi ngang sát đáy node rồi thả xuống.
+    let cx = x + (ports.length ? L.dIndent + L.portW + L.dColGap : 0);
+    const cy = y + L.nodeH + L.dRowGap;
+    const busY = y + L.nodeH + 8;
+    for (const c of kids) {
+      const sx = x + L.nodeW / 2;
+      const tx = cx + L.nodeW / 2;
+      const pts = tx === sx ? [[sx, y + L.nodeH], [tx, cy]] : [[sx, y + L.nodeH], [sx, busY], [tx, busY], [tx, cy]];
+      links.push({
+        key: c.key, kind: "node", edge: c.edge, pts,
+        x1: sx, y1: y + L.nodeH, x2: tx, y2: cy,
+        lx: tx + 8, ly: (busY + cy) / 2 + 2, lcls: "v",
+      });
+      place(c, cx, cy, box);
+      cx += c._w + L.dColGap;
+    }
+  };
+  let x = L.pad;
+  for (const t of trees) {
+    measure(t);
+    place(t, x, L.pad, null);
+    x += t._w + L.dColGap * 2;
+  }
+  const clean = (it) => {
+    delete it._w;
+    it.children.forEach(clean);
+  };
+  trees.forEach(clean);
+  return { boxes, links, width: width + L.pad, height: height + L.pad, mode: "down" };
+}
+
+/**
+ * Thẻ: mỗi node một thẻ (đầu thẻ = node, dưới là các cổng có thiết bị), xếp lưới theo bề ngang
+ * khung — thẻ vào cột đang thấp nhất (masonry), theo thứ tự cây. Đọc nhanh "switch nào đang có
+ * gì", hợp cả điện thoại (1 cột) lẫn màn rộng.
+ */
+export function layoutCards(trees, containerWidth, L = LAYOUT) {
+  const order = [];
+  const walk = (it) => {
+    if (it.kind !== "node") return;
+    order.push(it);
+    it.children.forEach(walk);
+  };
+  trees.forEach(walk);
+  const avail = Math.max(L.cardMinW, containerWidth - 2 * L.pad);
+  const cols = Math.max(1, Math.min(order.length, Math.floor((avail + L.cardGap) / (L.cardMinW + L.cardGap))));
+  const cardW = Math.min(L.cardMaxW, (avail - (cols - 1) * L.cardGap) / cols);
+  const colY = Array(cols).fill(L.pad);
+  const boxes = [];
+  const links = [];
+  const frames = [];
+  for (const it of order) {
+    const col = colY.indexOf(Math.min(...colY));
+    const fx = L.pad + col * (cardW + L.cardGap);
+    const fy = colY[col];
+    const box = { kind: "node", key: it.key, id: it.id, edge: it.edge, x: fx + L.cardPad, y: fy + L.cardPad, w: cardW - 2 * L.cardPad, h: L.nodeH };
+    boxes.push(box);
+    let y = box.y + box.h + 10;
+    const ports = it.children.filter((c) => c.kind === "port");
+    for (const c of ports) {
+      const pb = { kind: "port", key: c.key, nodeId: c.nodeId, port: c.port, x: box.x + L.dIndent, y, w: box.w - L.dIndent, h: L.portH };
+      boxes.push(pb);
+      links.push(listLink(c, box, pb, box.x + 14));
+      y += L.portH + L.portGap;
+    }
+    const fh = (ports.length ? y - L.portGap : box.y + box.h) + L.cardPad - fy;
+    frames.push({ key: it.key, x: fx, y: fy, w: cardW, h: fh });
+    colY[col] = fy + fh + L.cardGap;
+  }
+  const width = L.pad * 2 + cols * cardW + (cols - 1) * L.cardGap;
+  return { boxes, links, frames, width, height: Math.max(...colY) - L.cardGap + L.pad, mode: "cards" };
+}
+
 function cleanup(it) {
   delete it._h;
   delete it._ch;
@@ -709,7 +999,32 @@ function cleanup(it) {
 export function linkPath(l, mode) {
   const r = (n) => Math.round(n * 10) / 10;
   if (l.dir === "v") return `M${r(l.x1)} ${r(l.y1)}V${r(l.y2)}`;
-  if (mode === "vertical") {
+  if (l.polar) {
+    // Kiểu d3.linkRadial: 2 điểm điều khiển nằm trên vòng giữa, ở góc của cha và của con.
+    const { r1, a1, r2, a2, cx, cy } = l.polar;
+    const rm = (r1 + r2) / 2;
+    const pt = (rr, a) => `${r(cx + rr * Math.cos(a))} ${r(cy + rr * Math.sin(a))}`;
+    return `M${pt(r1, a1)}C${pt(rm, a1)} ${pt(rm, a2)} ${pt(r2, a2)}`;
+  }
+  if (l.pts) {
+    // Đường gấp khúc vuông góc, bo góc bằng cung Q (bán kính ≤ 8, không quá nửa đoạn ngắn).
+    const P = l.pts;
+    let d = `M${r(P[0][0])} ${r(P[0][1])}`;
+    for (let i = 1; i < P.length - 1; i++) {
+      const [ax, ay] = P[i - 1];
+      const [bx, by] = P[i];
+      const [cx, cy] = P[i + 1];
+      const lin = Math.hypot(bx - ax, by - ay);
+      const lout = Math.hypot(cx - bx, cy - by);
+      const rad = Math.min(8, lin / 2, lout / 2);
+      const p1 = [bx - ((bx - ax) / lin) * rad, by - ((by - ay) / lin) * rad];
+      const p2 = [bx + ((cx - bx) / lout) * rad, by + ((cy - by) / lout) * rad];
+      d += `L${r(p1[0])} ${r(p1[1])}Q${r(bx)} ${r(by)} ${r(p2[0])} ${r(p2[1])}`;
+    }
+    const z = P[P.length - 1];
+    return `${d}L${r(z[0])} ${r(z[1])}`;
+  }
+  if (mode === "vertical" || l.dir === "list") {
     const rad = Math.min(8, Math.abs(l.y2 - l.y1), Math.abs(l.x2 - l.x1));
     return `M${r(l.x1)} ${r(l.y1)}V${r(l.y2 - rad)}Q${r(l.x1)} ${r(l.y2)} ${r(l.x1 + rad)} ${r(l.y2)}H${r(l.x2)}`;
   }
@@ -723,6 +1038,12 @@ export function fitLayout(trees, width, opts = {}) {
   const minScale = opts.minScale ?? 0.55;
   const maxScale = opts.maxScale ?? 1;
   const mode = opts.layout ?? "auto";
+  if (mode === "radial" || mode === "arc" || mode === "down" || mode === "cards") {
+    const g =
+      mode === "down" ? layoutDown(trees) : mode === "cards" ? layoutCards(trees, width) : layoutRadial(trees, { variant: mode });
+    const scale = Math.min(maxScale, width / g.width);
+    return { ...g, scale, offsetX: Math.max(0, (width - g.width * scale) / 2) };
+  }
   if (mode !== "vertical") {
     const h = layoutHorizontal(trees, LAYOUT, { chain: opts.chain ?? "row" });
     const scale = Math.min(maxScale, width / h.width);
@@ -732,6 +1053,20 @@ export function fitLayout(trees, width, opts = {}) {
   }
   return { ...layoutVertical(trees, width), scale: 1, offsetX: 0 };
 }
+
+/** Các kiểu xem trên nút chuyển: [layout, icon]. */
+export const VIEWS = [
+  ["auto", "mdi:auto-fix"],
+  ["horizontal", "mdi:sitemap-outline"],
+  ["down", "mdi:file-tree-outline"],
+  ["radial", "mdi:hub-outline"],
+  ["arc", "mdi:chart-arc"],
+  ["cards", "mdi:view-dashboard-outline"],
+  ["vertical", "mdi:format-list-bulleted-square"],
+];
+
+/** Bố cục không có chỗ cho nhãn trên đường nối: lưu lượng ↓/↑ ghi ngay trong ô node. */
+const INLINE_TRAFFIC = new Set(["vertical", "cards"]);
 
 // ═══════════════════════════════ Chữ ═══════════════════════════════
 
@@ -748,8 +1083,12 @@ const STRINGS = {
     moving: "đường chạy = có lưu lượng",
     top: "Đang dùng mạng nhiều nhất",
     view_auto: "Tự động",
-    view_tree: "Sơ đồ",
-    view_list: "Danh sách",
+    view_horizontal: "Sơ đồ ngang",
+    view_down: "Cây dọc",
+    view_radial: "Tâm – viền",
+    view_arc: "Vòng cung",
+    view_cards: "Thẻ",
+    view_vertical: "Danh sách",
     top_none: "Không có thiết bị nào đang dùng đáng kể",
     disabled: "cổng tắt",
     traffic: "sáng viền = có lưu lượng",
@@ -772,8 +1111,12 @@ const STRINGS = {
     moving: "moving line = traffic",
     top: "Top talkers",
     view_auto: "Auto",
-    view_tree: "Tree",
-    view_list: "List",
+    view_horizontal: "Tree",
+    view_down: "Top-down",
+    view_radial: "Hub",
+    view_arc: "Arc",
+    view_cards: "Cards",
+    view_vertical: "List",
     top_none: "No device is using noticeable bandwidth",
     disabled: "port disabled",
     traffic: "glowing edge = traffic",
@@ -840,7 +1183,7 @@ async function defineCard() {
       this._topo = topo;
       try {
         const saved = localStorage.getItem(`lan-topo-card:view:${config.title || "default"}`);
-        this._view = saved === "horizontal" || saved === "vertical" ? saved : null;
+        this._view = VIEWS.some(([m]) => m === saved && m !== "auto") ? saved : null;
       } catch (_e) {
         this._view = null;
       }
@@ -997,9 +1340,10 @@ async function defineCard() {
           <div class="viewport ${lay?.mode || ""}" style="height:${height}px">
             ${lay
               ? html`<div class="stage" style="width:${lay.width}px;height:${lay.height}px;transform:translate(${lay.offsetX}px,0) scale(${lay.scale})">
+                  ${(lay.frames || []).map((f) => html`<div class="frame" style="left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px"></div>`)}
                   <svg class="edges" width=${lay.width} height=${lay.height} viewBox="0 0 ${lay.width} ${lay.height}"></svg>
                   ${lay.boxes.map((b) => (b.kind === "node" ? this._renderNode(b, lay, portsByNode, traffic, T, locale) : this._renderPort(b, lay, T, locale)))}
-                  ${lay.mode === "horizontal" ? lay.links.filter((l) => l.kind === "node").map((l) => this._renderEdgeLabel(l, traffic, locale)) : ""}
+                  ${INLINE_TRAFFIC.has(lay.mode) ? "" : lay.links.filter((l) => l.kind === "node").map((l) => this._renderEdgeLabel(l, traffic, locale))}
                 </div>`
               : ""}
           </div>
@@ -1019,7 +1363,7 @@ async function defineCard() {
       const t = b.edge ? traffic.get(b.edge.key) : null;
       const status = [];
       if (ports) status.push(err ? (err === "no_device" ? T.no_device : err) : T.ports_up(up, ports.length));
-      if (lay.mode === "vertical" && t && b.edge.label !== false && (t.down !== null || t.up !== null)) {
+      if (INLINE_TRAFFIC.has(lay.mode) && t && b.edge.label !== false && (t.down !== null || t.up !== null)) {
         status.push(`↓${formatRate(t.down, locale)} ↑${formatRate(t.up, locale)}`);
       }
       const count = Number(node.count) > 1 ? Number(node.count) : 0;
@@ -1119,8 +1463,7 @@ async function defineCard() {
           <ha-icon .icon=${icon}></ha-icon><span>${label}</span>
         </button>`;
       return html`<div class="vswitch">
-        ${btn("auto", "mdi:auto-fix", T.view_auto)} ${btn("horizontal", "mdi:sitemap-outline", T.view_tree)}
-        ${btn("vertical", "mdi:format-list-bulleted-square", T.view_list)}
+        ${VIEWS.map(([mode, icon]) => btn(mode, icon, T[`view_${mode}`]))}
       </div>`;
     }
 
@@ -1128,6 +1471,12 @@ async function defineCard() {
       if (l.edge?.label === false) return "";
       const t = traffic.get(l.edge.key);
       if (!t || (t.down === null && t.up === null)) return "";
+      if (l.lx !== undefined) {
+        // Bố cục tự chọn chỗ đặt nhãn (vòng: giữa đường cong; cây dọc: cạnh đoạn thả xuống).
+        return html`<div class="elabel ${l.lcls || "c"}" style="left:${l.lx}px;top:${l.ly}px">
+          <span class="d">↓ ${formatRate(t.down, locale)}</span><span class="u">↑ ${formatRate(t.up, locale)}</span>
+        </div>`;
+      }
       if (l.dir === "v") {
         // Đoạn đứng của chuỗi xếp chồng: nhãn đặt bên phải đường, giữa đoạn.
         return html`<div class="elabel v" style="left:${l.x1 + 9}px;top:${(l.y1 + l.y2) / 2}px">
@@ -1199,8 +1548,19 @@ async function defineCard() {
         const wu = flowWidth(up, { max: cap });
         const base = Math.max(w, wd + wu + 1);
         const off = (wd + wu) / 4 + 0.6;
-        const upright = lay.mode === "vertical" || l.dir === "v";
-        const tr = (sign) => (upright ? `translate(${sign * off} 0)` : `translate(0 ${sign * off})`);
+        const upright = lay.mode === "vertical" || l.dir === "v" || l.dir === "list";
+        const len = Math.hypot(l.x2 - l.x1, l.y2 - l.y1) || 1;
+        const nx = -(l.y2 - l.y1) / len; // pháp tuyến của đoạn cha → con
+        const ny = (l.x2 - l.x1) / len;
+        const r2 = (n) => Math.round(n * 10) / 10;
+        const tr = (sign) =>
+          l.polar
+            ? `translate(${r2(sign * off * nx)} ${r2(sign * off * ny)})`
+            : l.pts
+              ? `translate(${r2(sign * off * 0.7)} ${r2(sign * off * 0.7)})` // gấp khúc ↓ → : lệch chéo = lệch đều cả 2 phương
+              : upright
+              ? `translate(${sign * off} 0)`
+              : `translate(0 ${sign * off})`;
         const r1 = (n) => Math.round(n * 10) / 10;
         want.set(`${l.key}|b`, { d, cls: `base ${hot}`, style: `--c:${color};--w:${r1(base)}px` });
         want.set(`${l.key}|d`, { d, cls: `flow down lv${flowLevel(down, this._idleBps)}`, style: `--c:${color};--fw:${r1(wd)}px`, tr: tr(-1) });
@@ -1688,6 +2048,16 @@ async function defineCard() {
           transform: translate(0, -50%);
           align-items: flex-start;
         }
+        .elabel.c {
+          transform: translate(-50%, -50%);
+        }
+        .frame {
+          position: absolute;
+          box-sizing: border-box;
+          border-radius: 16px;
+          border: 1px solid var(--ltc-border);
+          background: rgba(10, 18, 36, 0.45);
+        }
         .vswitch {
           margin-left: auto;
           display: inline-flex;
@@ -1719,6 +2089,10 @@ async function defineCard() {
           background: rgba(34, 211, 238, 0.16);
           color: #67e8f9;
           box-shadow: 0 0 8px rgba(34, 211, 238, 0.35);
+        }
+        /* 7 kiểu xem: chỉ nút đang chọn hiện chữ (tên đầy đủ ở tooltip), điện thoại chỉ icon. */
+        .vbtn:not(.on) span {
+          display: none;
         }
         @media (max-width: 600px) {
           .vbtn span {

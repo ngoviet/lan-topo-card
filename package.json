@@ -1,6 +1,6 @@
 {
   "name": "lan-topo-card",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Home Assistant Lovelace card: live LAN topology (Internet → router → switches → ports) with traffic-driven animated links",
   "type": "module",
   "main": "dist/lan-topo-card.js",

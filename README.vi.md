@@ -15,6 +15,17 @@ Card Lovelace cho Home Assistant vẽ mạng LAN thành một cây sống:
 - **Bấm vào switch** để mở cột thiết bị: chỉ hiện cổng có link hoặc có lưu lượng, ẩn cổng nối sang switch khác.
   Màu cổng theo tốc độ link, có chú thích ngay trong card.
 - **Luôn vừa khung**: tự co theo bề ngang card khi tải và khi đổi cỡ; trên điện thoại (< 600 px) chuyển sang bố cục dọc.
+- **7 kiểu xem**, chọn bằng nút trên tiêu đề (mỗi trình duyệt nhớ riêng):
+
+  | Kiểu | `layout` | Hợp với |
+  |---|---|---|
+  | Tự động | `auto` | Sơ đồ ngang khi card rộng, danh sách trên điện thoại |
+  | Sơ đồ ngang | `horizontal` | Cây trái → phải, cột thiết bị cạnh từng switch |
+  | Cây dọc | `down` | Kiểu sơ đồ tổ chức: switch xếp hàng, thiết bị của mỗi switch chồng dưới nó (gọn bề ngang) |
+  | Tâm – viền | `radial` | Node rẽ nhánh đầu tiên (thường là router) ở giữa, switch và thiết bị trên các vòng quanh nó; nhánh Internet ở đỉnh |
+  | Vòng cung | `arc` | Như Tâm – viền nhưng xoè nửa vòng phía trên router |
+  | Thẻ | `cards` | Mỗi thiết bị một thẻ kèm các cổng, xếp lưới (masonry) vừa mọi bề ngang, cả điện thoại |
+  | Danh sách | `vertical` | Danh sách thụt lề |
 - Chỉ đọc: card không bật/tắt gì (công tắc PoE chỉ hiện thành ⚡).
 - Không có bước build: một file ES module, Lit lấy từ frontend Home Assistant.
 
@@ -76,9 +87,9 @@ edges:
 | `edges` | `[]` | Đường nối giữa các node. Topo phải là cây (mỗi node một node cha) |
 | `expanded` | `[]` | Id node mở sẵn khi tải, hoặc `all` (mọi node có cổng; tự bật `expand: multi`) |
 | `expand` | `single` | `single`: mở switch này thì đóng switch khác; `multi`: mở nhiều cái cùng lúc |
-| `layout` | `auto` | `auto`, `horizontal`, `vertical` (mặc định cho nút chuyển view) |
+| `layout` | `auto` | `auto`, `horizontal`, `down`, `radial`, `arc`, `cards`, `vertical` (mặc định cho nút chuyển view) |
 | `chain` | `stack` | `stack`: chuỗi node đầu cây chỉ có 1 con (vd Internet → modem → router) xếp dọc trong 1 cột cho gọn bề ngang; `row`: mỗi node 1 cột |
-| `view_switch` | `true` | Nút trên tiêu đề để chọn *Tự động* / *Sơ đồ* / *Danh sách*; mỗi trình duyệt nhớ lựa chọn riêng |
+| `view_switch` | `true` | Nút trên tiêu đề để chọn kiểu xem (chỉ nút đang chọn hiện tên, rê chuột để xem tên nút khác); mỗi trình duyệt nhớ lựa chọn riêng |
 | `breakpoint` | `600` | Card hẹp hơn mức này (px) thì `auto` dùng bố cục dọc |
 | `min_scale` | `0.55` | `auto` chuyển sang dọc khi cây phải co nhỏ hơn tỉ lệ này |
 | `max_scale` | `1` | Không phóng to cây quá tỉ lệ này |
