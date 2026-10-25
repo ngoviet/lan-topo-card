@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeConfig, topTalkers, usagePct, heatLevel } from "../dist/lan-topo-card.js";
+import { normalizeConfig, topTalkers, topLimit, usagePct, heatLevel } from "../dist/lan-topo-card.js";
 
 const port = (name, tx, rx, extra = {}) => ({ name, linked: true, speedMbps: 1000, txBps: tx, rxBps: rx, ...extra });
 const topo = normalizeConfig({
@@ -39,4 +39,16 @@ test("heatLevel: ≥10 Mbps ấm, ≥50 Mbps nóng, tuỳ chỉnh được", () 
   assert.equal(heatLevel(60e6), 2);
   assert.equal(heatLevel(60e6, { warmMbps: 100, hotMbps: 500 }), 0);
   assert.equal(heatLevel(null), 0);
+});
+
+test("topLimit: số dùng thẳng, true / bỏ trống / giá trị lạ → 5, false / 0 → ẩn", () => {
+  assert.equal(topLimit(undefined), 5);
+  assert.equal(topLimit(true), 5); // trước đây Number(true) = 1 → bảng chỉ còn 1 dòng
+  assert.equal(topLimit(null), 5);
+  assert.equal(topLimit("abc"), 5);
+  assert.equal(topLimit(-3), 5);
+  assert.equal(topLimit(8), 8);
+  assert.equal(topLimit("3"), 3);
+  assert.equal(topLimit(0), 0);
+  assert.equal(topLimit(false), 0);
 });

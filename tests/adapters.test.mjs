@@ -239,3 +239,10 @@ test("poeOn: chỉ khi PoE bật và có link, port_names poe:false tắt hẳn"
   assert.equal(poeOn({ poe: null, linked: true }), false); // switch không có PoE
   assert.equal(poeOn({ poe: true, linked: true }, { poe: false }), false); // uplink
 });
+
+test("readPort: sensor tốc độ báo -1 (chưa biết) → speedMbps null, không coi là có link", () => {
+  const states = { "sensor.sw_port_1_link_speed": st("-1", { unit_of_measurement: "Mbit/s" }) };
+  const p = readPort(states, { name: "1", speed: "sensor.sw_port_1_link_speed" });
+  assert.equal(p.speedMbps, null);
+  assert.equal(p.linked, false);
+});

@@ -112,3 +112,10 @@ test("flowWidth: dày theo log10 lưu lượng, có chặn", async () => {
   assert.equal(flowWidth(1e9, { max: 4 }), 4);
   assert.ok(flowWidth(50e6) > flowWidth(5e6)); // gấp 10 lần lưu lượng → dày hơn
 });
+
+test("speedColor / speedLabel: tốc độ ≤ 0 hoặc NaN = chưa biết, không ném lỗi", () => {
+  for (const v of [-1, NaN, 0]) {
+    assert.equal(speedColor(v), UNKNOWN_SPEED_COLOR);
+    assert.equal(speedLabel(v), "");
+  }
+});
