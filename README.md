@@ -101,7 +101,7 @@ edges:
 | `idle_kbps` | `20` | Below this traffic a link stands still |
 | `show_all_ports` | `false` | Also list ports without link/traffic |
 | `legend` | `true` | Show the color legend |
-| `top` | `5` | "Top talkers" table under the diagram: devices ranked by ↓+↑ traffic (bars proportional to the top device); `0` hides it |
+| `top` | `5` | "Top talkers" table under the diagram: devices ranked by ↓+↑ traffic (bars proportional to the top device); `0` or `false` hides it |
 | `warm_mbps`, `hot_mbps` | `10`, `50` | Port boxes glow amber above `warm_mbps` and pulse red above `hot_mbps` (total ↓+↑); every port box also has a usage bar at the bottom |
 | `motion` | `on` | `on`: flow dots always move (they carry information); `auto`: stop when the OS asks for reduced motion (Windows *Animation effects* off); `off`: never move |
 | `language` | HA language | `vi` or `en` |
