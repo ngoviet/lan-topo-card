@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.6.0";
+export const VERSION = "0.6.1";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -67,13 +67,14 @@ export const UNKNOWN_SPEED_COLOR = "#22d3ee";
 /** Màu cổng/đường theo tốc độ link. linked=false → đỏ; có link nhưng chưa biết tốc độ → cyan. */
 export function speedColor(mbps, linked = true) {
   if (!linked) return NO_LINK_COLOR;
-  if (!mbps) return UNKNOWN_SPEED_COLOR;
+  // Tốc độ ≤ 0 / NaN (vd sensor báo -1 khi chưa biết) không khớp bậc nào → coi như chưa biết.
+  if (!(mbps > 0)) return UNKNOWN_SPEED_COLOR;
   return SPEED_TIERS.find((t) => mbps >= t.min).color;
 }
 
 /** Nhãn ngắn của tốc độ link: 10000 → "10G", 2500 → "2.5G", 100 → "100M". */
 export function speedLabel(mbps) {
-  if (!mbps) return "";
+  if (!(mbps > 0)) return "";
   if (mbps >= 1000) return `${+(mbps / 1000).toFixed(1)}G`;
   return `${Math.round(mbps)}M`;
 }
@@ -361,7 +362,7 @@ export function readPort(states, def) {
     const st = stateOf(states, def.speed);
     if (st) {
       const bps = toBps(st.state, st.attributes?.unit_of_measurement ?? "Mbit/s");
-      speedMbps = bps ? bps / 1e6 : null;
+      speedMbps = bps > 0 ? bps / 1e6 : null;
     }
   }
   if (speedMbps === null && linkSt) {
@@ -468,7 +469,8 @@ export function coChannel(aps) {
       const ch = String(r.channel ?? "").match(/^\d+/)?.[0];
       if (!ch || !r.band) continue;
       const key = `${r.band}:${ch}`;
-      byKey.set(key, [...(byKey.get(key) || []), name]);
+      if (byKey.has(key)) byKey.get(key).push(name);
+      else byKey.set(key, [name]);
     }
   }
   const out = {};
@@ -492,7 +494,11 @@ export function groupClients(clients, { by = "ap", sort = "name", ssid = null, b
   }[sort] || ((a, b) => naturalCompare(a.name || "", b.name || ""));
   const key = (c) => (by === "ssid" ? c.essid : by === "band" ? (c.band ? `${c.band} GHz` : null) : c.ap) || "?";
   const groups = new Map();
-  for (const c of list) groups.set(key(c), [...(groups.get(key(c)) || []), c]);
+  for (const c of list) {
+    const k = key(c);
+    if (groups.has(k)) groups.get(k).push(c);
+    else groups.set(k, [c]);
+  }
   return [...groups.entries()]
     .sort((a, b) => naturalCompare(a[0], b[0]))
     .map(([name, items]) => ({ name, clients: items.sort(cmp) }));
@@ -512,6 +518,13 @@ export function heatLevel(bps, { warmMbps = 10, hotMbps = 50 } = {}) {
   if (bps >= hotMbps * 1e6) return 2;
   if (bps >= warmMbps * 1e6) return 1;
   return 0;
+}
+
+/** Số dòng bảng Top từ `top:` — số ≥ 0 dùng thẳng; true / bỏ trống / giá trị lạ → 5; false → 0. */
+export function topLimit(top) {
+  if (top === false) return 0;
+  const n = typeof top === "number" ? top : typeof top === "string" && top.trim() ? Number(top) : NaN;
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 5;
 }
 
 /**
@@ -1162,7 +1175,90 @@ async function defineCard() {
   const { LitElement, html, css } = await loadLit();
   const SVG_NS = "http://www.w3.org/2000/svg";
 
-  class LanTopoCard extends LitElement {
+  // Nền, màu chữ, khung thẻ và ô màu chú thích — dùng chung cho cả 3 thẻ.
+  const BASE_STYLES = css`
+    :host {
+      display: block;
+      --ltc-bg: radial-gradient(120% 140% at 0% 0%, #142443 0%, #0a1122 55%, #060a14 100%);
+      --ltc-fg: #e6edf7;
+      --ltc-dim: #8ea3c2;
+      --ltc-panel: rgba(14, 24, 46, 0.86);
+      --ltc-border: rgba(120, 160, 255, 0.18);
+      --ltc-up: #e879f9;
+    }
+    ha-card {
+      background: var(--ltc-bg);
+      color: var(--ltc-fg);
+      border-radius: var(--ha-card-border-radius, 18px);
+      border: 1px solid var(--ltc-border);
+      box-shadow: inset 0 0 28px rgba(56, 189, 248, 0.07);
+      overflow: hidden;
+    }
+    .title {
+      font-weight: 600;
+      text-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
+    }
+    .legend i {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      background: var(--c);
+      box-shadow: 0 0 6px var(--c);
+      margin-right: 5px;
+      vertical-align: -1px;
+    }
+  `;
+
+  /**
+   * Phần chung của 3 thẻ: bề ngang lưới, mở hộp more-info, chỉ vẽ lại khi entity đang theo dõi
+   * (`_tracked`, gom trong render) đổi, và dò cổng có cache.
+   */
+  class LanBaseCard extends LitElement {
+    getGridOptions() {
+      return { columns: "full", min_columns: 6 };
+    }
+
+    shouldUpdate(changed) {
+      if (changed.size > 1 || !changed.has("hass")) return true;
+      const old = changed.get("hass");
+      if (!old || !this._tracked) return true;
+      if (old.entities !== this.hass.entities || old.devices !== this.hass.devices) return true;
+      for (const id of this._tracked) if (old.states[id] !== this.hass.states[id]) return true;
+      return false;
+    }
+
+    _moreInfo(entityId) {
+      if (!entityId) return;
+      this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
+    }
+
+    /**
+     * Định nghĩa cổng của từng mục (node / device có `ports`) → [{ defs, error }] cùng thứ tự.
+     * Dò lại khi registry đổi hoặc sau 60 s (5 s khi còn mục chưa thấy cổng — integration đang nạp).
+     */
+    _discoverAll(items) {
+      const h = this.hass;
+      const now = Date.now();
+      const d = this._discovered;
+      if (d && d.entities === h.entities && d.devices === h.devices && now - d.at < (d.empty ? 5000 : 60000)) return d.list;
+      const ctx = { entities: h.entities, devices: h.devices, states: h.states };
+      let empty = false;
+      const list = items.map((it) => {
+        try {
+          const defs = discoverPorts(ctx, it);
+          if (!defs.length) empty = true;
+          return { defs, error: defs.length ? null : "no_device" };
+        } catch (err) {
+          return { defs: [], error: err.message };
+        }
+      });
+      this._discovered = { entities: h.entities, devices: h.devices, at: now, list, empty };
+      return list;
+    }
+  }
+
+  class LanTopoCard extends LanBaseCard {
     static get properties() {
       return { hass: { attribute: false }, _config: { state: true }, _width: { state: true }, _expanded: { state: true } };
     }
@@ -1182,7 +1278,7 @@ async function defineCard() {
       const topo = normalizeConfig(config);
       this._topo = topo;
       try {
-        const saved = localStorage.getItem(`lan-topo-card:view:${config.title || "default"}`);
+        const saved = localStorage.getItem(this._viewKey(config));
         this._view = VIEWS.some(([m]) => m === saved && m !== "auto") ? saved : null;
       } catch (_e) {
         this._view = null;
@@ -1197,10 +1293,6 @@ async function defineCard() {
 
     getCardSize() {
       return Math.max(3, Math.ceil((this._lastHeight || 300) / 50));
-    }
-
-    getGridOptions() {
-      return { columns: "full", min_columns: 6 };
     }
 
     connectedCallback() {
@@ -1220,40 +1312,11 @@ async function defineCard() {
       if (w && Math.abs(w - (this._width || 0)) >= 2) this._width = w;
     }
 
-    shouldUpdate(changed) {
-      if (changed.size > 1 || !changed.has("hass")) return true;
-      const old = changed.get("hass");
-      if (!old || !this._tracked) return true;
-      if (old.entities !== this.hass.entities || old.devices !== this.hass.devices) return true;
-      for (const id of this._tracked) if (old.states[id] !== this.hass.states[id]) return true;
-      return false;
-    }
-
-    /** Danh sách entity cổng của mỗi node — dò lại khi registry đổi hoặc mỗi phút. */
+    /** Cổng dò được của mỗi node có `ports`: Map(id → { defs, error }). */
     _discover() {
-      const h = this.hass;
-      const now = Date.now();
-      const d = this._discovered;
-      if (d && d.entities === h.entities && d.devices === h.devices && now - d.at < (d.empty ? 5000 : 60000)) return d.map;
-      const map = new Map();
-      const errors = new Map();
-      let empty = false;
-      for (const node of this._topo.nodes.values()) {
-        if (!node.ports) continue;
-        try {
-          const defs = discoverPorts({ entities: h.entities, devices: h.devices, states: h.states }, node);
-          if (!defs.length) {
-            empty = true;
-            errors.set(node.id, "no_device");
-          }
-          map.set(node.id, defs);
-        } catch (err) {
-          errors.set(node.id, err.message);
-          map.set(node.id, []);
-        }
-      }
-      this._discovered = { entities: h.entities, devices: h.devices, at: now, map, errors, empty };
-      return map;
+      const nodes = [...this._topo.nodes.values()].filter((n) => n.ports);
+      const list = this._discoverAll(nodes);
+      return new Map(nodes.map((n, i) => [n.id, list[i]]));
     }
 
     _infoText(value) {
@@ -1275,11 +1338,6 @@ async function defineCard() {
       this._expanded = next;
     }
 
-    _moreInfo(entityId) {
-      if (!entityId) return;
-      this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
-    }
-
     render() {
       if (!this._config || !this.hass) return html``;
       const cfg = this._config;
@@ -1287,14 +1345,14 @@ async function defineCard() {
       const locale = this.hass.locale?.language || "en";
       const states = this.hass.states;
       const idleBps = (cfg.idle_kbps ?? 20) * 1e3;
-      this._idleBpsTop = idleBps;
+      this._idleBps = idleBps;
       this._heatOpts = { warmMbps: cfg.warm_mbps ?? 10, hotMbps: cfg.hot_mbps ?? 50 };
       this._tracked = new Set();
 
       // Cổng từng node
-      const defsByNode = this._discover();
+      this._found = this._discover();
       const portsByNode = new Map();
-      for (const [id, defs] of defsByNode) {
+      for (const [id, { defs }] of this._found) {
         const ports = defs.map((d) => readPort(states, d));
         ports.forEach((p) => p.entities.forEach((e) => this._tracked.add(e)));
         portsByNode.set(id, ports);
@@ -1324,7 +1382,6 @@ async function defineCard() {
         : null;
       this._lay = lay;
       this._traffic = traffic;
-      this._idleBps = idleBps;
       const height = lay ? lay.height * lay.scale : 0;
       this._lastHeight = height;
 
@@ -1347,7 +1404,7 @@ async function defineCard() {
                 </div>`
               : ""}
           </div>
-          ${cfg.top === 0 || cfg.top === false ? "" : this._renderTop(portsByNode, T, locale)}
+          ${topLimit(cfg.top) ? this._renderTop(portsByNode, T, locale) : ""}
           ${cfg.legend === false ? "" : this._renderLegend(T)}
         </ha-card>
       `;
@@ -1356,7 +1413,7 @@ async function defineCard() {
     _renderNode(b, lay, portsByNode, traffic, T, locale) {
       const node = this._topo.nodes.get(b.id);
       const ports = portsByNode.get(b.id);
-      const err = this._discovered?.errors?.get(b.id);
+      const err = this._found.get(b.id)?.error;
       const expandable = !!node.ports;
       const expanded = this._expanded.has(b.id);
       const up = ports ? ports.filter((p) => p.linked).length : 0;
@@ -1417,8 +1474,7 @@ async function defineCard() {
     }
 
     _renderTop(portsByNode, T, locale) {
-      const limit = Number.isFinite(Number(this._config.top)) ? Number(this._config.top) : 5;
-      const rows = topTalkers(this._topo, portsByNode, { limit, idleBps: this._idleBpsTop });
+      const rows = topTalkers(this._topo, portsByNode, { limit: topLimit(this._config.top), idleBps: this._idleBps });
       return html`<div class="top">
         <div class="thead"><ha-icon icon="mdi:podium"></ha-icon>${T.top}</div>
         ${rows.length
@@ -1441,8 +1497,8 @@ async function defineCard() {
       </div>`;
     }
 
-    _viewKey() {
-      return `lan-topo-card:view:${this._config.title || "default"}`;
+    _viewKey(config = this._config) {
+      return `lan-topo-card:view:${config.title || "default"}`;
     }
 
     _setView(mode) {
@@ -1459,7 +1515,7 @@ async function defineCard() {
     _renderViewSwitch(T) {
       const cur = this._view || "auto";
       const btn = (mode, icon, label) =>
-        html`<button class="vbtn ${cur === mode ? "on" : ""}" title=${label} @click=${() => this._setView(mode)}>
+        html`<button type="button" class="vbtn ${cur === mode ? "on" : ""}" title=${label} aria-label=${label} aria-pressed=${cur === mode ? "true" : "false"} @click=${() => this._setView(mode)}>
           <ha-icon .icon=${icon}></ha-icon><span>${label}</span>
         </button>`;
       return html`<div class="vswitch">
@@ -1552,24 +1608,24 @@ async function defineCard() {
         const len = Math.hypot(l.x2 - l.x1, l.y2 - l.y1) || 1;
         const nx = -(l.y2 - l.y1) / len; // pháp tuyến của đoạn cha → con
         const ny = (l.x2 - l.x1) / len;
-        const r2 = (n) => Math.round(n * 10) / 10;
+        const r1 = (n) => Math.round(n * 10) / 10;
         const tr = (sign) =>
           l.polar
-            ? `translate(${r2(sign * off * nx)} ${r2(sign * off * ny)})`
+            ? `translate(${r1(sign * off * nx)} ${r1(sign * off * ny)})`
             : l.pts
-              ? `translate(${r2(sign * off * 0.7)} ${r2(sign * off * 0.7)})` // gấp khúc ↓ → : lệch chéo = lệch đều cả 2 phương
+              ? `translate(${r1(sign * off * 0.7)} ${r1(sign * off * 0.7)})` // gấp khúc ↓ → : lệch chéo = lệch đều cả 2 phương
               : upright
               ? `translate(${sign * off} 0)`
               : `translate(0 ${sign * off})`;
-        const r1 = (n) => Math.round(n * 10) / 10;
         want.set(`${l.key}|b`, { d, cls: `base ${hot}`, style: `--c:${color};--w:${r1(base)}px` });
         want.set(`${l.key}|d`, { d, cls: `flow down lv${flowLevel(down, this._idleBps)}`, style: `--c:${color};--fw:${r1(wd)}px`, tr: tr(-1) });
         want.set(`${l.key}|u`, { d, cls: `flow up lv${flowLevel(up, this._idleBps)}`, style: `--c:${color};--fw:${r1(wu)}px`, tr: tr(1) });
       }
+      const existing = new Map();
       for (const el of [...svg.children]) {
-        if (!want.has(el.dataset.k)) el.remove();
+        if (want.has(el.dataset.k)) existing.set(el.dataset.k, el);
+        else el.remove();
       }
-      const existing = new Map([...svg.children].map((el) => [el.dataset.k, el]));
       for (const [k, a] of want) {
         let el = existing.get(k);
         if (!el) {
@@ -1588,23 +1644,9 @@ async function defineCard() {
     }
 
     static get styles() {
-      return css`
-        :host {
-          display: block;
-          --ltc-bg: radial-gradient(120% 140% at 0% 0%, #142443 0%, #0a1122 55%, #060a14 100%);
-          --ltc-fg: #e6edf7;
-          --ltc-dim: #8ea3c2;
-          --ltc-panel: rgba(14, 24, 46, 0.86);
-          --ltc-border: rgba(120, 160, 255, 0.18);
-          --ltc-up: #e879f9;
-        }
+      return [BASE_STYLES, css`
         ha-card {
-          background: var(--ltc-bg);
-          color: var(--ltc-fg);
-          border-radius: var(--ha-card-border-radius, 18px);
-          border: 1px solid var(--ltc-border);
           box-shadow: inset 0 0 28px rgba(56, 189, 248, 0.07), 0 0 18px rgba(56, 189, 248, 0.06);
-          overflow: hidden;
         }
         .head {
           display: flex;
@@ -1615,9 +1657,7 @@ async function defineCard() {
         }
         .title {
           font-size: 1.1rem;
-          font-weight: 600;
           letter-spacing: 0.02em;
-          text-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
         }
         .sub {
           color: var(--ltc-dim);
@@ -2108,16 +2148,6 @@ async function defineCard() {
           font-size: 0.74rem;
           color: var(--ltc-dim);
         }
-        .legend i {
-          display: inline-block;
-          width: 10px;
-          height: 10px;
-          border-radius: 3px;
-          background: var(--c);
-          box-shadow: 0 0 6px var(--c);
-          margin-right: 5px;
-          vertical-align: -1px;
-        }
         .legend .sep {
           color: #7dd3fc;
         }
@@ -2126,7 +2156,7 @@ async function defineCard() {
           --c: #fbbf24;
           vertical-align: -2px;
         }
-      `;
+      `];
     }
   }
 
@@ -2134,7 +2164,7 @@ async function defineCard() {
    * lan-ports-card — lưới cổng gọn: mỗi switch một hàng ô nhỏ, màu theo tốc độ link.
    * Cùng adapter với lan-topo-card (routeros / netgear_plus / khai báo tay). Chỉ đọc.
    */
-  class LanPortsCard extends LitElement {
+  class LanPortsCard extends LanBaseCard {
     static get properties() {
       return { hass: { attribute: false }, _config: { state: true } };
     }
@@ -2159,43 +2189,6 @@ async function defineCard() {
       return 1 + this._devices.length;
     }
 
-    getGridOptions() {
-      return { columns: "full", min_columns: 6 };
-    }
-
-    shouldUpdate(changed) {
-      if (changed.size > 1 || !changed.has("hass")) return true;
-      const old = changed.get("hass");
-      if (!old || !this._tracked) return true;
-      if (old.entities !== this.hass.entities || old.devices !== this.hass.devices) return true;
-      for (const id of this._tracked) if (old.states[id] !== this.hass.states[id]) return true;
-      return false;
-    }
-
-    _discover() {
-      const h = this.hass;
-      const now = Date.now();
-      const d = this._discovered;
-      if (d && d.entities === h.entities && d.devices === h.devices && now - d.at < (d.empty ? 5000 : 60000)) return d.list;
-      let empty = false;
-      const list = this._devices.map((dev) => {
-        try {
-          const defs = discoverPorts({ entities: h.entities, devices: h.devices, states: h.states }, dev);
-          if (!defs.length) empty = true;
-          return { defs, error: defs.length ? null : "no_device" };
-        } catch (err) {
-          return { defs: [], error: err.message };
-        }
-      });
-      this._discovered = { entities: h.entities, devices: h.devices, at: now, list, empty };
-      return list;
-    }
-
-    _moreInfo(entityId) {
-      if (!entityId) return;
-      this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
-    }
-
     render() {
       if (!this._config || !this.hass) return html``;
       const cfg = this._config;
@@ -2204,7 +2197,7 @@ async function defineCard() {
       const locale = this.hass.locale?.language || "en";
       const idle = (cfg.idle_kbps ?? 20) * 1e3;
       this._tracked = new Set();
-      const found = this._discover();
+      const found = this._discoverAll(this._devices);
       return html`<ha-card>
         ${cfg.title ? html`<div class="head"><div class="title">${cfg.title}</div></div>` : ""}
         <div class="rows">
@@ -2255,21 +2248,8 @@ async function defineCard() {
     }
 
     static get styles() {
-      return css`
-        :host {
-          display: block;
-          --ltc-bg: radial-gradient(120% 140% at 0% 0%, #142443 0%, #0a1122 55%, #060a14 100%);
-          --ltc-fg: #e6edf7;
-          --ltc-dim: #8ea3c2;
-          --ltc-border: rgba(120, 160, 255, 0.18);
-        }
+      return [BASE_STYLES, css`
         ha-card {
-          background: var(--ltc-bg);
-          color: var(--ltc-fg);
-          border-radius: var(--ha-card-border-radius, 18px);
-          border: 1px solid var(--ltc-border);
-          box-shadow: inset 0 0 28px rgba(56, 189, 248, 0.07);
-          overflow: hidden;
           padding-bottom: 4px;
         }
         .head {
@@ -2277,8 +2257,6 @@ async function defineCard() {
         }
         .title {
           font-size: 1.05rem;
-          font-weight: 600;
-          text-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
         }
         .rows {
           display: flex;
@@ -2361,16 +2339,6 @@ async function defineCard() {
           font-size: 0.72rem;
           color: var(--ltc-dim);
         }
-        .legend i {
-          display: inline-block;
-          width: 10px;
-          height: 10px;
-          border-radius: 3px;
-          background: var(--c);
-          box-shadow: 0 0 6px var(--c);
-          margin-right: 5px;
-          vertical-align: -1px;
-        }
         .legend i.off {
           background: transparent;
           border: 1px solid var(--c);
@@ -2388,7 +2356,7 @@ async function defineCard() {
           color: #fde047;
           vertical-align: -2px;
         }
-      `;
+      `];
     }
   }
 
@@ -2396,7 +2364,7 @@ async function defineCard() {
    * lan-wifi-card — thiết bị Wi-Fi theo AP (integration aruba_instant_ha): sóng, băng tần, SSID,
    * tốc độ, tải kênh từng radio, cảnh báo AP trùng kênh. Chỉ đọc.
    */
-  class LanWifiCard extends LitElement {
+  class LanWifiCard extends LanBaseCard {
     static get properties() {
       return {
         hass: { attribute: false },
@@ -2452,10 +2420,7 @@ async function defineCard() {
       return 6;
     }
 
-    getGridOptions() {
-      return { columns: "full", min_columns: 6 };
-    }
-
+    // Mọi dữ liệu nằm trong thuộc tính của 1 entity → chỉ cần so entity đó.
     shouldUpdate(changed) {
       if (changed.size > 1 || !changed.has("hass")) return true;
       const old = changed.get("hass");
@@ -2543,22 +2508,8 @@ async function defineCard() {
     }
 
     static get styles() {
-      return css`
-        :host {
-          display: block;
-          --ltc-bg: radial-gradient(120% 140% at 0% 0%, #142443 0%, #0a1122 55%, #060a14 100%);
-          --ltc-fg: #e6edf7;
-          --ltc-dim: #8ea3c2;
-          --ltc-panel: rgba(14, 24, 46, 0.86);
-          --ltc-border: rgba(120, 160, 255, 0.18);
-        }
+      return [BASE_STYLES, css`
         ha-card {
-          background: var(--ltc-bg);
-          color: var(--ltc-fg);
-          border-radius: var(--ha-card-border-radius, 18px);
-          border: 1px solid var(--ltc-border);
-          box-shadow: inset 0 0 28px rgba(56, 189, 248, 0.07);
-          overflow: hidden;
           padding-bottom: 8px;
         }
         .empty {
@@ -2573,8 +2524,6 @@ async function defineCard() {
         }
         .title {
           font-size: 1.05rem;
-          font-weight: 600;
-          text-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
         }
         .sub {
           color: var(--ltc-dim);
@@ -2766,7 +2715,7 @@ async function defineCard() {
         .snr {
           color: var(--c);
         }
-      `;
+      `];
     }
   }
 
@@ -2774,29 +2723,14 @@ async function defineCard() {
   if (!customElements.get("lan-ports-card")) customElements.define("lan-ports-card", LanPortsCard);
   if (!customElements.get("lan-topo-card")) customElements.define("lan-topo-card", LanTopoCard);
   window.customCards = window.customCards || [];
-  if (!window.customCards.some((c) => c.type === "lan-topo-card")) {
-    window.customCards.push({
-      type: "lan-topo-card",
-      name: "LAN Topo Card",
-      description: "Sơ đồ mạng LAN: Internet → router → switch → cổng, đường chạy theo băng thông",
-      documentationURL: "https://github.com/ngoviet/lan-topo-card",
-    });
-  }
-  if (!window.customCards.some((c) => c.type === "lan-wifi-card")) {
-    window.customCards.push({
-      type: "lan-wifi-card",
-      name: "LAN Wi-Fi Card",
-      description: "Thiết bị Wi-Fi theo AP (Aruba Instant): sóng, băng tần, SSID, tải kênh",
-      documentationURL: "https://github.com/ngoviet/lan-topo-card",
-    });
-  }
-  if (!window.customCards.some((c) => c.type === "lan-ports-card")) {
-    window.customCards.push({
-      type: "lan-ports-card",
-      name: "LAN Ports Card",
-      description: "Lưới cổng switch gọn: mỗi switch một hàng, màu theo tốc độ link",
-      documentationURL: "https://github.com/ngoviet/lan-topo-card",
-    });
+  for (const [type, name, description] of [
+    ["lan-topo-card", "LAN Topo Card", "Sơ đồ mạng LAN: Internet → router → switch → cổng, đường chạy theo băng thông"],
+    ["lan-wifi-card", "LAN Wi-Fi Card", "Thiết bị Wi-Fi theo AP (Aruba Instant): sóng, băng tần, SSID, tải kênh"],
+    ["lan-ports-card", "LAN Ports Card", "Lưới cổng switch gọn: mỗi switch một hàng, màu theo tốc độ link"],
+  ]) {
+    if (!window.customCards.some((c) => c.type === type)) {
+      window.customCards.push({ type, name, description, documentationURL: "https://github.com/ngoviet/lan-topo-card" });
+    }
   }
   console.info(`%c LAN-TOPO-CARD %c v${VERSION} `, "color:#0a1122;background:#22d3ee;font-weight:700", "color:#22d3ee;background:#0a1122");
 }
