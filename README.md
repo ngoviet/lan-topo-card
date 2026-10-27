@@ -1,13 +1,31 @@
 # LAN Topo Card
 
+<!-- readme-axi type=card -->
+
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 [![Test](https://github.com/ngoviet/lan-topo-card/actions/workflows/test.yml/badge.svg)](https://github.com/ngoviet/lan-topo-card/actions/workflows/test.yml)
 
-*Tiếng Việt: [README.vi.md](README.vi.md)*
+**English** · [Tiếng Việt](README.vi.md)
 
 A Home Assistant Lovelace card that draws your LAN as a live tree:
 **Internet → modem(s) → router → switches → devices on each port**, with links that animate with real traffic
 and stand still when idle.
+
+> 🇻🇳 Built and maintained by one person in Việt Nam — if it saves you time, please
+> [support the project](#support-the-project).
+
+## Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Options](#options)
+- [LAN Ports Card](#lan-ports-card)
+- [LAN Wi-Fi Card](#lan-wi-fi-card)
+- [Colors](#colors)
+- [Development](#development)
+
+## Features
 
 - **Topology in YAML** (`nodes` + `edges`): no built-in assumptions about the shape of the network.
 - **Port adapters** read the ports of a switch from existing integrations:
@@ -34,7 +52,7 @@ and stand still when idle.
 - Read-only: the card never toggles anything (PoE switches are only shown as ⚡).
 - No build step: one ES module, Lit taken from the Home Assistant frontend.
 
-## Install
+## Installation
 
 ### HACS (recommended)
 
@@ -46,7 +64,9 @@ and stand still when idle.
 
 Copy `dist/lan-topo-card.js` to `/config/www/` and add the resource `/local/lan-topo-card.js` (type: JavaScript module).
 
-## Example
+## Usage
+
+Add the card to a dashboard in YAML mode. A full example:
 
 ```yaml
 type: custom:lan-topo-card
@@ -232,9 +252,10 @@ runner; the custom element is only defined in a browser.
   <img src="https://raw.githubusercontent.com/ngoviet/.github/main/assets/support/vietqr-card.svg" width="300" alt="VietQR — MB Bank — NGO DUC VIET — 911051212">
 </p>
 
-<p align="center"><sub>🇻🇳 VietQR: quét bằng app ngân hàng bất kỳ, nội dung <code>Ung ho lan-topo-card</code>. Cảm ơn bạn! · Thank you for keeping this project alive.</sub></p>
+<p align="center"><sub>🇻🇳 VietQR: scan with any Vietnamese banking app, transfer note <code>Ung ho lan-topo-card</code>. Thank you for keeping this project alive!</sub></p>
+<p align="center"><sub>Crypto (BEP20 network): <code>0x57f07d44fb581cddc028a0c67d63a8cc05aa6caa</code> · USDT · USDC · BNB · ETH · BTC</sub></p>
 <!-- support:end -->
 
 ## License
 
-MIT © ngoviet
+[MIT](LICENSE) © Ngô Đức Việt.

@@ -1,9 +1,30 @@
 # LAN Topo Card
 
-*English: [README.md](README.md)*
+<!-- readme-axi type=card -->
+
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
+[![Test](https://github.com/ngoviet/lan-topo-card/actions/workflows/test.yml/badge.svg)](https://github.com/ngoviet/lan-topo-card/actions/workflows/test.yml)
+
+[English](README.md) · **Tiếng Việt**
 
 Card Lovelace cho Home Assistant vẽ mạng LAN thành một cây sống:
 **Internet → modem → router → switch → thiết bị trên từng cổng**. Đường nối chạy theo lưu lượng thật và đứng yên khi rảnh.
+
+> 🇻🇳 Dự án do một người Việt tự xây dựng và duy trì — nếu nó giúp ích cho bạn, hãy
+> [ủng hộ dự án](#ủng-hộ-dự-án).
+
+## Mục lục
+
+- [Tính năng](#tính-năng)
+- [Cài đặt](#cài-đặt)
+- [Cách dùng](#cách-dùng)
+- [Tuỳ chọn](#tuỳ-chọn)
+- [LAN Ports Card](#lan-ports-card)
+- [LAN Wi-Fi Card](#lan-wi-fi-card)
+- [Màu](#màu)
+- [Phát triển](#phát-triển)
+
+## Tính năng
 
 - **Topo khai báo bằng YAML** (`nodes` + `edges`), không gắn cứng khuôn mạng nào.
 - **Adapter cổng** đọc cổng switch từ integration có sẵn:
@@ -41,7 +62,9 @@ Card Lovelace cho Home Assistant vẽ mạng LAN thành một cây sống:
 
 Chép `dist/lan-topo-card.js` vào `/config/www/`, rồi thêm resource `/local/lan-topo-card.js` (loại JavaScript module).
 
-## Ví dụ
+## Cách dùng
+
+Thêm card vào dashboard ở chế độ YAML. Ví dụ đầy đủ:
 
 ```yaml
 type: custom:lan-topo-card
@@ -226,9 +249,10 @@ Node; custom element chỉ được định nghĩa khi chạy trong trình duy�
   <img src="https://raw.githubusercontent.com/ngoviet/.github/main/assets/support/vietqr-card.svg" width="300" alt="VietQR — MB Bank — NGO DUC VIET — 911051212">
 </p>
 
-<p align="center"><sub>🇻🇳 VietQR: quét bằng app ngân hàng bất kỳ, nội dung <code>Ung ho lan-topo-card</code>. Cảm ơn bạn! · Thank you for keeping this project alive.</sub></p>
+<p align="center"><sub>🇻🇳 VietQR: quét bằng app ngân hàng bất kỳ, nội dung <code>Ung ho lan-topo-card</code>. Cảm ơn bạn đã giúp dự án tiếp tục phát triển!</sub></p>
+<p align="center"><sub>Tiền mã hoá (mạng BEP20): <code>0x57f07d44fb581cddc028a0c67d63a8cc05aa6caa</code> · USDT · USDC · BNB · ETH · BTC</sub></p>
 <!-- support:end -->
 
 ## Giấy phép
 
-MIT © ngoviet
+[MIT](LICENSE) © Ngô Đức Việt.
