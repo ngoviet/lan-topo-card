@@ -615,7 +615,8 @@ export const LAYOUT = {
   vNodeH: 70,
   vPortH: 42,
   vGap: 10,
-  // dây vào cổng: các làn ngang dưới đáy thẻ
+  // dây vào cổng: viền .node và các làn ngang dưới đáy thẻ
+  nodeBorder: 1,
   laneTop: 9,
   laneStep: 7,
 };
@@ -1251,15 +1252,18 @@ export function linkPath(l, mode) {
 
 /**
  * Điểm cắm vào ô cổng. Dây luôn ra từ đáy thẻ: ô hàng dưới đi thẳng xuống từ mép dưới ô; ô hàng trên
- * đi theo khe giữa hai cột, chạm cạnh trái ô (không che số cổng, không đè ô hàng dưới).
+ * đi theo khe giữa hai cột tới ngang ô (không che số cổng, không đè ô hàng dưới); chấm cắm rộng hơn
+ * khe nên lệch sang phải, chỉ chạm ô đích (`plug`). Toạ độ tính cả viền thẻ: .pface nằm trong padding box.
  */
 function portEnd(box, name) {
   const f = box.face;
   const c = f?.cells.find((cell) => cell.port.name === name);
   if (!c) return null;
-  const left = box.x + f.x + c.x;
-  const top = box.y + f.y + c.y;
-  return c.y + c.h >= f.h - 0.5 ? { x: left + c.w / 2, y: top + c.h + 1 } : { x: left - 1, y: top + c.h / 2 };
+  const left = box.x + LAYOUT.nodeBorder + f.x + c.x;
+  const top = box.y + LAYOUT.nodeBorder + f.y + c.y;
+  if (c.y + c.h >= f.h - 0.5) return { x: left + c.w / 2, y: top + c.h + 1 };
+  const y = top + c.h / 2;
+  return { x: left - 1, y, plug: [left + 1, y] };
 }
 
 /** Bỏ điểm trùng và điểm giữa thẳng hàng để linkPath chỉ bo ở góc thật. */
@@ -1341,7 +1345,7 @@ export function routeWires(lay, L = LAYOUT) {
       key, kind: "node", edge: w.l.edge, pts: clean,
       wire: { from: w.from, to: w.to, count: w.n, label: w.first },
       x1: a.x, y1: a.y, x2: z[0], y2: z[1],
-      plugs: [w.from !== null ? [a.x, a.y] : null, w.to !== null ? z : null].filter(Boolean),
+      plugs: [w.from !== null ? a.plug ?? [a.x, a.y] : null, w.to !== null ? b?.plug ?? z : null].filter(Boolean),
       lx: down ? (ch ?? C.x) + 5 : C.x - 6,
       ly: down ? (ya + C.y) / 2 : midY,
       lcls: down ? "v" : "w",

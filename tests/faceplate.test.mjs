@@ -136,6 +136,15 @@ test("planWires: cổng ẩn một đầu không làm lệch cặp; một cổng
 
 const tree = (panels = homePanels(), opts) => buildTree(homeTopo(), new Set(), new Map(), panels, opts);
 const nodeBoxes = (lay) => lay.boxes.filter((b) => b.kind === "node");
+// Khung ô như trình duyệt vẽ: .pface định vị trong padding box của .node (viền 1 px); bán kính = path.plug.
+const NODE_BORDER = 1;
+const PLUG_R = 2.25;
+const cellRect = (box, name) => {
+  const c = box.face.cells.find((cell) => cell.port.name === name);
+  const left = box.x + NODE_BORDER + box.face.x + c.x;
+  const top = box.y + NODE_BORDER + box.face.y + c.y;
+  return { left, top, right: left + c.w, bottom: top + c.h };
+};
 
 for (const [name, make] of [
   ["ngang", () => routeWires(layoutHorizontal(tree(), LAYOUT, { chain: "stack" }))],
@@ -167,8 +176,29 @@ test("routeWires: dây vào cổng hàng trên chạy theo khe, không đè ô h
   const ccr = lay.boxes.find((b) => b.id === "ccr");
   const e2 = lay.links.find((l) => l.wire?.to === "ether2");
   const [x] = e2.pts[e2.pts.length - 1];
-  const cx = ccr.x + ccr.face.x + ccr.face.cells.find((c) => c.port.name === "ether1").x;
+  const cx = cellRect(ccr, "ether1").left;
   assert.ok(x < cx && x > cx - FACE_METRICS.full.gap - 0.5);
+});
+
+test("routeWires: chấm cắm cổng hàng trên chạm ô đích, không chạm ô kế bên (cả đầu ra lẫn đầu vào)", () => {
+  const topo = normalizeConfig({
+    nodes: [
+      { id: "r", name: "R", type: "router", ports: { adapter: "routeros" } },
+      { id: "s", name: "S", type: "switch", ports: { adapter: "routeros" } },
+    ],
+    edges: [{ from: "r", to: "s", from_port: "ether4", to_port: "ether6" }],
+  });
+  const panels = new Map(["r", "s"].map((id) => [id, { panel: portPanel(ethers(8), { rows: 2, top: "even" }), ports: ethers(8) }]));
+  const lay = routeWires(layoutHorizontal(buildTree(topo, new Set(), new Map(), panels), LAYOUT, { chain: "stack" }));
+  const wire = lay.links.find((l) => l.wire);
+  const [from, to] = wire.plugs;
+  const box = (id) => lay.boxes.find((b) => b.id === id);
+  for (const [[x, y], id, target, neighbor] of [[from, "r", "ether4", "ether2"], [to, "s", "ether6", "ether4"]]) {
+    const t = cellRect(box(id), target);
+    const n = cellRect(box(id), neighbor);
+    assert.ok(x - PLUG_R < t.right && x + PLUG_R > t.left && y - PLUG_R < t.bottom && y + PLUG_R > t.top, `${target}: chấm phải chạm ô đích`);
+    assert.ok(x - PLUG_R >= n.right, `${target}: chấm không được chạm ${neighbor}`);
+  }
 });
 
 test("routeWires: cổng càng phải làn càng sâu (dây vào cùng thẻ không cắt nhau)", () => {
