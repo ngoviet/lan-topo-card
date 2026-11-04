@@ -7,6 +7,9 @@ import {
   layoutDown,
   routeWires,
   fitLayout,
+  layoutVertical,
+  layoutCards,
+  detailMode,
   linkPath,
   faceplateSpec,
   portPanel,
@@ -209,6 +212,83 @@ test("Mọi kiểu xem dựng được với dải cổng, thẻ không đè nha
       }),
     );
   }
+});
+
+const noOverlap = (lay, tag) => {
+  const bs = nodeBoxes(lay);
+  bs.forEach((a, i) => {
+    assert.ok(a.x + a.w + LAYOUT.pad <= lay.width, `${tag}: ${a.id} vượt bề rộng`);
+    bs.slice(i + 1).forEach((b) => {
+      const hit = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+      assert.ok(!hit, `${tag}: ${a.id} đè ${b.id}`);
+    });
+  });
+};
+const chainOf = (ids, kids = []) =>
+  normalizeConfig({
+    nodes: [...ids, ...kids].map((id) => ({ id })),
+    edges: [
+      ...ids.slice(1).map((to, i) => ({ from: ids[i], to })),
+      ...kids.map((to) => ({ from: ids[ids.length - 1], to })),
+    ],
+  });
+const strip = (n) => ({ panel: portPanel(ethers(n), { rows: 1, block: 0 }), head: 68 });
+
+for (const [name, topo, panels] of [
+  ["thẻ giữa chuỗi", chainOf(["inet", "r", "ap"]), new Map([["r", strip(16)]])],
+  ["thẻ giữa chuỗi, nhiều con", chainOf(["inet", "r", "s"], ["a", "b", "c", "d"]), new Map([["r", strip(24)]])],
+  ["thẻ đầu chuỗi", chainOf(["r", "ap"], ["a", "b"]), new Map([["r", strip(24)]])],
+]) {
+  test(`chain stack, cạnh không có dây (${name}): thẻ không bị cắt, không đè nhau`, () => {
+    noOverlap(layoutHorizontal(buildTree(topo, new Set(), new Map(), panels), LAYOUT, { chain: "stack" }), name);
+    noOverlap(layoutHorizontal(buildTree(topo, new Set(), new Map(), panels, { wires: "node" }), LAYOUT, { chain: "stack" }), `${name}, wires node`);
+  });
+}
+
+test("chain stack: mẫu đơn giản vẫn xếp chồng cả chuỗi", () => {
+  const lay = layoutHorizontal(buildTree(chainOf(["inet", "r", "ap"]), new Set(), new Map()), LAYOUT, { chain: "stack" });
+  assert.equal(new Set(nodeBoxes(lay).map((b) => b.x)).size, 1);
+  assert.equal(lay.width, LAYOUT.pad * 2 + LAYOUT.nodeW);
+});
+
+const unknownSwitch = (n, sfps = 1) => ({
+  panel: portPanel([...ethers(n), ...Array.from({ length: sfps }, (_, i) => port(`sfp${i + 1}`))], {}),
+  head: 68,
+});
+for (const [n, sfps] of [[24, 1], [48, 1], [4, 16]]) {
+  for (const [name, layout] of [["vertical", layoutVertical], ["cards", layoutCards]]) {
+    test(`Model lạ ${n} cổng + ${sfps} SFP, khung 360 (${name}): đủ ô, ô nào cũng nằm trong thẻ`, () => {
+      const topo = normalizeConfig({ nodes: [{ id: "s", ports: [] }] });
+      const box = layout(buildTree(topo, new Set(), new Map(), new Map([["s", unknownSwitch(n, sfps)]])), 360).boxes[0];
+      assert.equal(box.face.cells.length, n + sfps);
+      for (const c of box.face.cells) assert.ok(box.face.x + c.x + c.w <= box.w - FACE_METRICS.touch.pad + 1e-9, c.port.name);
+      assert.equal(new Set(box.face.cells.map((c) => `${c.x},${c.y}`)).size, n + sfps);
+    });
+  }
+}
+
+test("panelLayout: chia cụm giữ nguyên từng cột; cụm vừa khung không bị chia", () => {
+  const panel = portPanel(ethers(24), { rows: 2, top: "even" });
+  const f = panelLayout(panel, FACE_METRICS.touch, 200);
+  const cell = (name) => f.cells.find((c) => c.port.name === name);
+  for (let i = 1; i < 24; i += 2) assert.equal(cell(`ether${i}`).x, cell(`ether${i + 1}`).x);
+  assert.equal(panelLayout(panel, FACE_METRICS.full, 1000).h, panelLayout(panel).h);
+});
+
+test("normalizeConfig: faceplate.rows/block sai báo lỗi thay vì treo khi vẽ", () => {
+  const cfg = (faceplate) => ({ nodes: [{ id: "s", ports: {}, faceplate }] });
+  for (const rows of [0, -1, 1.5, "2"]) assert.throws(() => normalizeConfig(cfg({ rows })), /rows phải/);
+  for (const block of [-1, 1.5, "4"]) assert.throws(() => normalizeConfig(cfg({ block })), /block phải/);
+  for (const ok of [{ rows: 2, block: 4 }, { block: 0 }, false, undefined]) assert.ok(normalizeConfig(cfg(ok)));
+});
+
+test("detailMode: chọn trên thẻ thắng YAML; view_switch: false thì chỉ YAML quyết định", () => {
+  assert.equal(detailMode({}, null), "full");
+  assert.equal(detailMode({ detail: "simple" }, null), "simple");
+  assert.equal(detailMode({ detail: "simple" }, "full"), "full");
+  assert.equal(detailMode({ detail: "simple" }, "rác"), "simple");
+  assert.equal(detailMode({ detail: "simple", view_switch: false }, "full"), "simple");
+  assert.equal(detailMode({ view_switch: false }, "simple"), "full");
 });
 
 test("wireTraffic: một dây dùng số cả cạnh; nhiều dây tách theo cổng", () => {

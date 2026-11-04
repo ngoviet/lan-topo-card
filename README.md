@@ -116,7 +116,7 @@ edges:
 | `chain` | `stack` | `stack`: the leading chain of single-child nodes (e.g. Internet → modem → router) is stacked in one column, saving width; `row`: one column per node |
 | `detail` | `full` | `full`: router/switch cards show a strip of port cells with wires plugged straight into them; `simple`: compact cards with card-to-card links, as in earlier versions. Switch instantly from the header buttons (remembered per browser) |
 | `wires` | `port` | In full detail: `port` plugs wires into the exact port cell (tree and top-down views; other views keep card links); `node` keeps the port strip but links stop at the card |
-| `view_switch` | `true` | Buttons in the header to pick a view (only the active one shows its name; hover for the others); the choice is remembered per browser |
+| `view_switch` | `true` | Buttons in the header to pick a view (only the active one shows its name; hover for the others); the choice is remembered per browser. Also controls the Simple/Full buttons: with `false` both sets of buttons are hidden, the detail saved in the browser is ignored and `detail` in YAML decides |
 | `breakpoint` | `600` | Below this card width (px), `auto` uses the vertical layout |
 | `min_scale` | `0.55` | `auto` switches to vertical when the tree would need to shrink below this |
 | `max_scale` | `1` | Never scale the tree up beyond this |
@@ -178,7 +178,7 @@ ports:
 
 *Down* always means away from the Internet. Ports named in `from_port`/`to_port` are hidden from the device column.
 
-Full detail draws one wire per port listed in `from_port`/`to_port`. An edge with several ports becomes several wires, each with its own port's traffic; an end with no port goes to the edge of the card. Hover a port cell or a wire to highlight the whole path, click a cell for port details. Edges with port wires are not stacked by `chain`, because wires must route under the card.
+Full detail draws one wire per port listed in `from_port`/`to_port`. An edge with several ports becomes several wires, each with its own port's traffic; an end with no port goes to the edge of the card. Hover a port cell or a wire to highlight the whole path, click a cell for port details. Cards with a port strip are not stacked by `chain`: they are wider than the column, and port wires must route under the card.
 
 ## LAN Ports Card
 

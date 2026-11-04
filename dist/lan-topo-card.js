@@ -164,6 +164,13 @@ export function normalizeConfig(config) {
     if (!raw || !raw.id) throw new Error("lan-topo-card: mỗi node cần `id`");
     const id = String(raw.id);
     if (nodes.has(id)) throw new Error(`lan-topo-card: trùng node id "${id}"`);
+    const { rows, block } = raw.faceplate ?? {};
+    if (rows != null && !(Number.isInteger(rows) && rows > 0)) {
+      throw new Error(`lan-topo-card: node "${id}" — faceplate.rows phải là số nguyên dương`);
+    }
+    if (block != null && !(Number.isInteger(block) && block >= 0)) {
+      throw new Error(`lan-topo-card: node "${id}" — faceplate.block phải là số nguyên không âm`);
+    }
     const type = raw.type in NODE_TYPES ? raw.type : "device";
     nodes.set(id, {
       ...raw,
@@ -660,15 +667,23 @@ export function portPanel(ports, spec = {}) {
 
 /**
  * Toạ độ từng ô trong dải (gốc = góc trên trái dải) — chỗ vẽ ô và chỗ dây cắm vào cùng lấy từ đây,
- * không đo DOM. maxW: dải dài hơn thì các cụm xuống dòng (danh sách trên điện thoại).
+ * không đo DOM. maxW: dải dài hơn thì các cụm xuống dòng, cụm rộng hơn maxW thì chia theo cột
+ * (danh sách trên điện thoại).
  */
 export function panelLayout(panel, M = FACE_METRICS.full, maxW = Infinity) {
-  const groups = panel.blocks.map((cols) => ({ cols, sfp: false }));
+  const whole = panel.blocks.map((cols) => ({ cols, sfp: false }));
   if (panel.sfp.length) {
     const g = { cols: panel.sfp.map((p) => [p]), sfp: true };
-    if (panel.sfpSide === "left") groups.unshift(g);
-    else groups.push(g);
+    if (panel.sfpSide === "left") whole.unshift(g);
+    else whole.push(g);
   }
+  const groups = whole.flatMap((g) => {
+    const cw = g.sfp ? M.sfpW : M.cell;
+    const fit = Math.max(1, Math.floor((maxW + M.gap) / (cw + M.gap)));
+    const parts = [];
+    for (let i = 0; i < g.cols.length; i += fit) parts.push({ ...g, cols: g.cols.slice(i, i + fit) });
+    return parts;
+  });
   const rowH = panel.rows * M.cellH + (panel.rows - 1) * M.gap;
   const cells = [];
   let x = 0;
@@ -827,8 +842,8 @@ export function layoutHorizontal(trees, L = LAYOUT, { chain = "row" } = {}) {
     const lead = [t];
     if (chain === "stack") {
       let cur = t;
-      // Cạnh có dây vào cổng không xếp chồng: dây cần đi vòng dưới thẻ con, không xuyên qua thẻ.
-      while (cur.children.length === 1 && cur.children[0].kind === "node" && !cur.children[0].wires) {
+      // Thẻ có dải cổng không xếp chồng: thẻ rộng hơn cột, và dây vào cổng cần đi vòng dưới thẻ con.
+      while (cur.children.length === 1 && cur.children[0].kind === "node" && !cur.panel && !cur.children[0].panel) {
         cur = cur.children[0];
         lead.push(cur);
       }
@@ -844,8 +859,7 @@ export function layoutHorizontal(trees, L = LAYOUT, { chain = "row" } = {}) {
     for (let k = lead.length - 2; k >= 0; k--) {
       const it = lead[k];
       const child = lead[k + 1];
-      const { w, h, face } = dress(it);
-      const box = { kind: "node", key: it.key, id: it.id, edge: it.edge, x: below.x, y: below.y - L.chainGap - h, w, h, face };
+      const box = { kind: "node", key: it.key, id: it.id, edge: it.edge, x: below.x, y: below.y - L.chainGap - L.nodeH, w: L.nodeW, h: L.nodeH };
       boxes.push(box);
       links.push({
         key: child.key,
@@ -1358,6 +1372,12 @@ export function fitLayout(trees, width, opts = {}) {
   return { ...layoutVertical(trees, width), scale: 1, offsetX: 0 };
 }
 
+/** Mẫu đang dùng: chọn trên thẻ > `detail:` trong YAML > đầy đủ. Không có nút chuyển thì chỉ YAML quyết định. */
+export function detailMode(config, picked) {
+  if (config.view_switch !== false && (picked === "simple" || picked === "full")) return picked;
+  return config.detail === "simple" ? "simple" : "full";
+}
+
 /** Các kiểu xem trên nút chuyển: [layout, icon]. */
 export const VIEWS = [
   ["auto", "mdi:auto-fix"],
@@ -1541,8 +1561,7 @@ async function defineCard() {
       border: 1px solid rgba(148, 163, 184, 0.35);
     }
     .legend i.dis {
-      background: transparent;
-      border: 1px dashed #94a3b8;
+      background: repeating-linear-gradient(45deg, rgba(148, 163, 184, 0.08) 0 3px, rgba(148, 163, 184, 0.26) 3px 5px);
     }
     .legend i.fault {
       background: rgba(239, 68, 68, 0.12);
@@ -1678,8 +1697,7 @@ async function defineCard() {
         this._view = null;
       }
       try {
-        const saved = localStorage.getItem(this._detailKey(config));
-        this._detail = saved === "simple" || saved === "full" ? saved : null;
+        this._detail = localStorage.getItem(this._detailKey(config));
       } catch (_e) {
         this._detail = null;
       }
@@ -1999,9 +2017,8 @@ async function defineCard() {
       return `lan-topo-card:detail:${config.title || "default"}`;
     }
 
-    /** Mẫu đang dùng: chọn trên thẻ > `detail:` trong YAML > đầy đủ. */
     _detailMode() {
-      return this._detail || (this._config.detail === "simple" ? "simple" : "full");
+      return detailMode(this._config, this._detail);
     }
 
     _setDetail(mode) {

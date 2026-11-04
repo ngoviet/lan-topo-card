@@ -114,7 +114,7 @@ edges:
 | `chain` | `stack` | `stack`: chuỗi node đầu cây chỉ có 1 con (vd Internet → modem → router) xếp dọc trong 1 cột cho gọn bề ngang; `row`: mỗi node 1 cột |
 | `detail` | `full` | `full` (Đầy đủ): thẻ router/switch có dải ô từng cổng, dây cắm thẳng vào cổng; `simple` (Đơn giản): thẻ gọn, đường nối thẻ–thẻ như các bản trước. Chuyển ngay bằng nút trên tiêu đề, mỗi trình duyệt nhớ riêng |
 | `wires` | `port` | Trong mẫu đầy đủ: `port` dây cắm vào đúng ô cổng (sơ đồ ngang, cây dọc; các kiểu khác giữ đường nối thẻ); `node` giữ dải cổng nhưng đường nối chỉ tới thẻ |
-| `view_switch` | `true` | Nút trên tiêu đề để chọn kiểu xem (chỉ nút đang chọn hiện tên, rê chuột để xem tên nút khác); mỗi trình duyệt nhớ lựa chọn riêng |
+| `view_switch` | `true` | Nút trên tiêu đề để chọn kiểu xem (chỉ nút đang chọn hiện tên, rê chuột để xem tên nút khác); mỗi trình duyệt nhớ lựa chọn riêng. Tuỳ chọn này cũng áp dụng cho nút Đơn giản/Đầy đủ: đặt `false` thì ẩn cả hai nhóm nút, bỏ qua mẫu đã lưu trong trình duyệt và `detail` trong YAML quyết định |
 | `breakpoint` | `600` | Card hẹp hơn mức này (px) thì `auto` dùng bố cục dọc |
 | `min_scale` | `0.55` | `auto` chuyển sang dọc khi cây phải co nhỏ hơn tỉ lệ này |
 | `max_scale` | `1` | Không phóng to cây quá tỉ lệ này |
@@ -176,7 +176,7 @@ cố định (`1G`, `100M`, `2500`).
 
 *Xuống* luôn là chiều đi ra xa Internet. Cổng ghi ở `from_port`/`to_port` được ẩn khỏi cột thiết bị.
 
-Mẫu đầy đủ vẽ mỗi cổng ở `from_port`/`to_port` một dây. Cạnh có nhiều cổng được tách thành nhiều dây, mỗi dây theo lưu lượng cổng của nó; đầu không khai cổng thì dây vào cạnh thẻ. Rê chuột lên ô cổng hoặc dây để làm sáng cả đường, bấm ô để mở chi tiết cổng. Cạnh có dây vào cổng không xếp chồng theo `chain`, vì dây cần đi vòng dưới thẻ.
+Mẫu đầy đủ vẽ mỗi cổng ở `from_port`/`to_port` một dây. Cạnh có nhiều cổng được tách thành nhiều dây, mỗi dây theo lưu lượng cổng của nó; đầu không khai cổng thì dây vào cạnh thẻ. Rê chuột lên ô cổng hoặc dây để làm sáng cả đường, bấm ô để mở chi tiết cổng. Thẻ có dải cổng không xếp chồng theo `chain`, vì thẻ rộng hơn cột và dây vào cổng cần đi vòng dưới thẻ.
 
 ## LAN Ports Card
 
