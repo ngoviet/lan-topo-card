@@ -33,6 +33,7 @@ const ethers = (n, extra) => Array.from({ length: n }, (_, i) => port(`ether${i 
 test("faceplateSpec: khớp tiền tố model, YAML ghi đè, faceplate: false tắt", () => {
   const ports = { adapter: "routeros" };
   assert.equal(faceplateSpec({ ports }, { model: "CRS326-24G-2S+RM" }).sfp, "right");
+  assert.equal(faceplateSpec({ ports }, { model: "CRS310-8G+2S+IN" }).sfp, "left");
   assert.equal(faceplateSpec({ ports: { adapter: "netgear_plus", prefix: "gs108pe" } }, undefined).rows, 1);
   assert.equal(faceplateSpec({ ports, faceplate: { rows: 1 } }, { model: "CRS326-24G-2S+RM" }).rows, 1);
   assert.deepEqual(faceplateSpec({ ports }, { model: "Lạ" }), {});

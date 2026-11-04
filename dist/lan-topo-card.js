@@ -629,7 +629,7 @@ export const LAYOUT = {
  */
 export const FACEPLATES = {
   "CCR2004-16G-2S+": { rows: 2, top: "even", block: 4, sfp: "left" },
-  "CRS310-8G+2S+": { rows: 2, top: "even", block: 4, sfp: "right" },
+  "CRS310-8G+2S+": { rows: 2, top: "even", block: 4, sfp: "left" },
   "CRS326-24G-2S+": { rows: 2, top: "even", block: 4, sfp: "right" },
   GS108PE: { rows: 1, block: 0 },
 };
