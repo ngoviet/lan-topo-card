@@ -122,9 +122,6 @@ edges:
 | `max_scale` | `1` | Never scale the tree up beyond this |
 | `idle_kbps` | `20` | Below this traffic a link stands still |
 | `show_all_ports` | `false` | Also list ports without link/traffic |
-| `model` | Model used to pick the port arrangement when the device registry has none |
-| `faceplate` | `auto` (default), `false` (no port strip on this card) or `{ rows, top, block, sfp }`: rows, `top: even` = even ports on the top row, columns per group, SFP side (`left`/`right`) |
-| `expect_speed` | Expected speed (Mbps or `1G`): linked ports slower than this get an amber outline. Override per port with `port_names: { ether5: { expect_speed: 100 } }`, `false` to skip |
 | `legend` | `true` | Show the color legend |
 | `top` | `5` | "Top talkers" table under the diagram: devices ranked by ↓+↑ traffic (bars proportional to the top device); `0` or `false` hides it |
 | `warm_mbps`, `hot_mbps` | `10`, `50` | Port boxes glow amber above `warm_mbps` and pulse red above `hot_mbps` (total ↓+↑); every port box also has a usage bar at the bottom |
@@ -144,6 +141,9 @@ edges:
 | `ports` | Port adapter, see below. Nodes with ports can be opened |
 | `port_names` | Per-port label: `"name \| ip"`, `{ name, ip, icon, show, poe, optional }` (`poe: false` hides ⚡; `optional: true`: a device that is often off, losing link is not a fault) or `false` to hide. Without a name the card uses the `device` / `device_ip` attributes of the link entity (routeros_ha: LLDP neighbor or DHCP lease comment), then the port comment |
 | `show_all_ports` | Per-node version of the card option |
+| `model` | Model used to pick the port arrangement when the device registry has none |
+| `faceplate` | `auto` (default), `false` (no port strip on this card) or `{ rows, top, block, sfp }`: rows, `top: even` = even ports on the top row, columns per group, SFP side (`left`/`right`) |
+| `expect_speed` | Expected speed (Mbps or `1G`): linked ports slower than this get an amber outline. Override per port with `port_names: { ether5: { expect_speed: 100 } }`, `false` to skip |
 
 ### Port adapters
 
@@ -200,7 +200,7 @@ devices:
 
 | Key | Description |
 |---|---|
-| `devices` | **Required.** Each has `name`, `ports` (adapter, as for nodes) and optional `port_names` (`false` hides a port) |
+| `devices` | **Required.** Each has `name`, `ports` (adapter, as for nodes) and optional `port_names` (`false` hides a port) and `expect_speed` (as for nodes) |
 | `title`, `legend`, `idle_kbps`, `language` | As in LAN Topo Card |
 
 ## LAN Wi-Fi Card

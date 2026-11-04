@@ -197,7 +197,7 @@ devices:
 
 | Khoá | Ý nghĩa |
 |---|---|
-| `devices` | **Bắt buộc.** Mỗi thiết bị có `name`, `ports` (adapter, như node) và `port_names` tuỳ chọn (`false` = ẩn cổng) |
+| `devices` | **Bắt buộc.** Mỗi thiết bị có `name`, `ports` (adapter, như node) và `port_names` tuỳ chọn (`false` = ẩn cổng), `expect_speed` tuỳ chọn (như node) |
 | `title`, `legend`, `idle_kbps`, `language` | Như LAN Topo Card |
 
 ## LAN Wi-Fi Card
