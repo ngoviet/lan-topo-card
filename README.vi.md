@@ -35,6 +35,8 @@ Card Lovelace cho Home Assistant vẽ mạng LAN thành một cây sống:
 - **Đơn vị bất kỳ**: bit/s, kbit/s, Mbit/s, Gbit/s, B/s, kB/s, MB/s, KiB/s…
 - **Bấm vào switch** để mở cột thiết bị: chỉ hiện cổng có link hoặc có lưu lượng, ẩn cổng nối sang switch khác.
   Màu cổng theo tốc độ link, có chú thích ngay trong card.
+- **Hai mẫu hiển thị** (`detail`): Đầy đủ hiện từng cổng trên thẻ thiết bị, dây cắm thẳng vào đúng cổng; Đơn giản giữ
+  thẻ gọn.
 - **Luôn vừa khung**: tự co theo bề ngang card khi tải và khi đổi cỡ; trên điện thoại (< 600 px) chuyển sang bố cục dọc.
 - **7 kiểu xem**, chọn bằng nút trên tiêu đề (mỗi trình duyệt nhớ riêng):
 
@@ -111,8 +113,8 @@ edges:
 | `expanded` | `[]` | Id node mở sẵn khi tải, hoặc `all` (mọi node có cổng; tự bật `expand: multi`) |
 | `expand` | `single` | `single`: mở switch này thì đóng switch khác; `multi`: mở nhiều cái cùng lúc |
 | `layout` | `auto` | `auto`, `horizontal`, `down`, `radial`, `arc`, `cards`, `vertical` (mặc định cho nút chuyển view) |
-| `chain` | `stack` | `stack`: chuỗi node đầu cây chỉ có 1 con (vd Internet → modem → router) xếp dọc trong 1 cột cho gọn bề ngang; `row`: mỗi node 1 cột |
-| `detail` | `full` | `full` (Đầy đủ): thẻ router/switch có dải ô từng cổng, dây cắm thẳng vào cổng; `simple` (Đơn giản): thẻ gọn, đường nối thẻ–thẻ như các bản trước. Chuyển ngay bằng nút trên tiêu đề, mỗi trình duyệt nhớ riêng |
+| `chain` | `stack` | `stack`: chuỗi node đầu cây chỉ có 1 con (vd Internet → modem → router) xếp dọc trong 1 cột cho gọn bề ngang; `row`: mỗi node 1 cột. Thẻ có dải cổng không xếp chồng, vì thẻ rộng hơn cột và dây vào cổng cần đi vòng dưới thẻ |
+| `detail` | `full` | `full` (Đầy đủ): thẻ của node có `ports` hiện dải ô từng cổng, dây cắm thẳng vào cổng; `simple` (Đơn giản): thẻ gọn, đường nối thẻ–thẻ như các bản trước. Chuyển ngay bằng nút trên tiêu đề, mỗi trình duyệt nhớ riêng và lựa chọn này ưu tiên hơn `detail` trong YAML |
 | `wires` | `port` | Trong mẫu đầy đủ: `port` dây cắm vào đúng ô cổng (sơ đồ ngang, cây dọc; các kiểu khác giữ đường nối thẻ); `node` giữ dải cổng nhưng đường nối chỉ tới thẻ |
 | `view_switch` | `true` | Nút trên tiêu đề để chọn kiểu xem (chỉ nút đang chọn hiện tên, rê chuột để xem tên nút khác); mỗi trình duyệt nhớ lựa chọn riêng. Tuỳ chọn này cũng áp dụng cho nút Đơn giản/Đầy đủ: đặt `false` thì ẩn cả hai nhóm nút, bỏ qua mẫu đã lưu trong trình duyệt và `detail` trong YAML quyết định |
 | `breakpoint` | `600` | Card hẹp hơn mức này (px) thì `auto` dùng bố cục dọc |
@@ -139,7 +141,7 @@ edges:
 | `ports` | Adapter cổng, xem bên dưới. Node có cổng thì bấm để mở được |
 | `port_names` | Tên từng cổng: `"tên \| ip"`, `{ name, ip, icon, show, poe, optional }` (`poe: false` ẩn ⚡; `optional: true`: máy hay tắt, mất link không báo lỗi), hoặc `false` để ẩn. Không ghi tên thì card dùng thuộc tính `device` / `device_ip` của entity link (routeros_ha: LLDP neighbor hoặc comment DHCP lease), rồi tới comment của cổng |
 | `show_all_ports` | Như tuỳ chọn của card nhưng chỉ cho node này |
-| `model` | Model để chọn cách xếp cổng, khi không lấy được từ device registry |
+| `model` | Model để chọn cách xếp cổng, ưu tiên hơn device registry. Không có cả hai thì thử `prefix` của adapter |
 | `faceplate` | `auto` (mặc định), `false` (thẻ này không có dải cổng) hoặc `{ rows, top, block, sfp }`: số hàng, `top: even` = cổng chẵn ở hàng trên, số cột mỗi cụm, phía đặt SFP (`left`/`right`) |
 | `expect_speed` | Tốc độ kỳ vọng (Mbps hoặc `1G`): cổng có link mà chậm hơn được viền vàng. Ghi đè từng cổng bằng `port_names: { ether5: { expect_speed: 100 } }`, `false` để bỏ |
 
@@ -176,7 +178,7 @@ cố định (`1G`, `100M`, `2500`).
 
 *Xuống* luôn là chiều đi ra xa Internet. Cổng ghi ở `from_port`/`to_port` được ẩn khỏi cột thiết bị.
 
-Mẫu đầy đủ vẽ mỗi cổng ở `from_port`/`to_port` một dây. Cạnh có nhiều cổng được tách thành nhiều dây, mỗi dây theo lưu lượng cổng của nó; đầu không khai cổng thì dây vào cạnh thẻ. Rê chuột lên ô cổng hoặc dây để làm sáng cả đường, bấm ô để mở chi tiết cổng. Thẻ có dải cổng không xếp chồng theo `chain`, vì thẻ rộng hơn cột và dây vào cổng cần đi vòng dưới thẻ.
+Mẫu đầy đủ vẽ mỗi cổng ở `from_port`/`to_port` một dây. Cạnh có nhiều cổng được tách thành nhiều dây, mỗi dây theo lưu lượng cổng của nó; đầu không khai cổng thì dây vào cạnh thẻ. Rê chuột lên ô cổng hoặc dây để làm sáng cả đường, bấm ô để mở chi tiết cổng. Kiểu Tâm – viền và Vòng cung hiện dải thành các chấm trạng thái nhỏ (không rê chuột, không bấm được); Thẻ và Danh sách dùng ô to để chạm.
 
 ## LAN Ports Card
 
