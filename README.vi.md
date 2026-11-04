@@ -35,6 +35,8 @@ Card Lovelace cho Home Assistant vẽ mạng LAN thành một cây sống:
 - **Đơn vị bất kỳ**: bit/s, kbit/s, Mbit/s, Gbit/s, B/s, kB/s, MB/s, KiB/s…
 - **Bấm vào switch** để mở cột thiết bị: chỉ hiện cổng có link hoặc có lưu lượng, ẩn cổng nối sang switch khác.
   Màu cổng theo tốc độ link, có chú thích ngay trong card.
+- **Hai mẫu hiển thị** (`detail`): Đầy đủ hiện từng cổng trên thẻ thiết bị, dây cắm thẳng vào đúng cổng; Đơn giản giữ
+  thẻ gọn.
 - **Luôn vừa khung**: tự co theo bề ngang card khi tải và khi đổi cỡ; trên điện thoại (< 600 px) chuyển sang bố cục dọc.
 - **7 kiểu xem**, chọn bằng nút trên tiêu đề (mỗi trình duyệt nhớ riêng):
 
@@ -111,8 +113,10 @@ edges:
 | `expanded` | `[]` | Id node mở sẵn khi tải, hoặc `all` (mọi node có cổng; tự bật `expand: multi`) |
 | `expand` | `single` | `single`: mở switch này thì đóng switch khác; `multi`: mở nhiều cái cùng lúc |
 | `layout` | `auto` | `auto`, `horizontal`, `down`, `radial`, `arc`, `cards`, `vertical` (mặc định cho nút chuyển view) |
-| `chain` | `stack` | `stack`: chuỗi node đầu cây chỉ có 1 con (vd Internet → modem → router) xếp dọc trong 1 cột cho gọn bề ngang; `row`: mỗi node 1 cột |
-| `view_switch` | `true` | Nút trên tiêu đề để chọn kiểu xem (chỉ nút đang chọn hiện tên, rê chuột để xem tên nút khác); mỗi trình duyệt nhớ lựa chọn riêng |
+| `chain` | `stack` | `stack`: chuỗi node đầu cây chỉ có 1 con (vd Internet → modem → router) xếp dọc trong 1 cột cho gọn bề ngang; `row`: mỗi node 1 cột. Thẻ có dải cổng không xếp chồng, vì thẻ rộng hơn cột và dây vào cổng cần đi vòng dưới thẻ |
+| `detail` | `full` | `full` (Đầy đủ): thẻ của node có `ports` hiện dải ô từng cổng, dây cắm thẳng vào cổng; `simple` (Đơn giản): thẻ gọn, đường nối thẻ–thẻ như các bản trước. Chuyển ngay bằng nút trên tiêu đề, mỗi trình duyệt nhớ riêng và lựa chọn này ưu tiên hơn `detail` trong YAML |
+| `wires` | `port` | Trong mẫu đầy đủ: `port` dây cắm vào đúng ô cổng (sơ đồ ngang, cây dọc; các kiểu khác giữ đường nối thẻ); `node` giữ dải cổng nhưng đường nối chỉ tới thẻ |
+| `view_switch` | `true` | Nút trên tiêu đề để chọn kiểu xem (chỉ nút đang chọn hiện tên, rê chuột để xem tên nút khác); mỗi trình duyệt nhớ lựa chọn riêng. Tuỳ chọn này cũng áp dụng cho nút Đơn giản/Đầy đủ: đặt `false` thì ẩn cả hai nhóm nút, bỏ qua mẫu đã lưu trong trình duyệt và `detail` trong YAML quyết định |
 | `breakpoint` | `600` | Card hẹp hơn mức này (px) thì `auto` dùng bố cục dọc |
 | `min_scale` | `0.55` | `auto` chuyển sang dọc khi cây phải co nhỏ hơn tỉ lệ này |
 | `max_scale` | `1` | Không phóng to cây quá tỉ lệ này |
@@ -135,8 +139,13 @@ edges:
 | `count` | Vẽ thành chồng nhiều lớp kèm huy hiệu `×N` (vd nhiều modem) |
 | `entity` | Bấm node không có cổng thì mở entity này |
 | `ports` | Adapter cổng, xem bên dưới. Node có cổng thì bấm để mở được |
-| `port_names` | Tên từng cổng: `"tên \| ip"`, `{ name, ip, icon, show, poe }` (`poe: false` ẩn ⚡), hoặc `false` để ẩn. Không ghi tên thì card dùng thuộc tính `device` / `device_ip` của entity link (routeros_ha: LLDP neighbor hoặc comment DHCP lease), rồi tới comment của cổng |
+| `port_names` | Tên từng cổng: `"tên \| ip"`, `{ name, ip, icon, show, poe, optional }` (`poe: false` ẩn ⚡; `optional: true`: máy hay tắt, mất link không báo lỗi), hoặc `false` để ẩn. Không ghi tên thì card dùng thuộc tính `device` / `device_ip` của entity link (routeros_ha: LLDP neighbor hoặc comment DHCP lease), rồi tới comment của cổng |
 | `show_all_ports` | Như tuỳ chọn của card nhưng chỉ cho node này |
+| `brand` | Nhãn hãng trên thẻ (mặc định lấy từ device registry) |
+| `stats` | Dòng CPU, RAM, thời gian chạy, nhiệt độ trên thẻ mẫu đầy đủ. Tự nhận theo tên entity của device; ghi đè bằng `{ cpu, ram, uptime, temp }`, `false` để tắt |
+| `model` | Model để chọn cách xếp cổng, ưu tiên hơn device registry. Không có cả hai thì thử `prefix` của adapter |
+| `faceplate` | `auto` (mặc định), `false` (thẻ này không có dải cổng) hoặc `{ rows, top, block, sfp }`: số hàng, `top: even` = cổng chẵn ở hàng trên, số cột mỗi cụm, phía đặt SFP (`left`/`right`) |
+| `expect_speed` | Tốc độ kỳ vọng (Mbps hoặc `1G`): cổng có link mà chậm hơn được viền vàng. Ghi đè từng cổng bằng `port_names: { ether5: { expect_speed: 100 } }`, `false` để bỏ |
 
 ### Adapter cổng
 
@@ -171,10 +180,12 @@ cố định (`1G`, `100M`, `2500`).
 
 *Xuống* luôn là chiều đi ra xa Internet. Cổng ghi ở `from_port`/`to_port` được ẩn khỏi cột thiết bị.
 
+Mẫu đầy đủ vẽ mỗi cổng ở `from_port`/`to_port` một dây. Cạnh có nhiều cổng được tách thành nhiều dây, mỗi dây theo lưu lượng cổng của nó; đầu không khai cổng thì dây vào cạnh thẻ. Khi mở node, dây tới từng thiết bị cuối cũng ra từ đúng ô cổng, và danh sách thiết bị xếp theo vị trí ô để dây không cắt nhau. Rê chuột lên ô cổng hoặc dây để làm sáng cả đường, bấm ô để mở chi tiết cổng. Kiểu Tâm – viền và Vòng cung hiện dải thành các chấm trạng thái nhỏ (không rê chuột, không bấm được); Thẻ và Danh sách dùng ô to để chạm.
+
 ## LAN Ports Card
 
 Cùng file còn đăng ký **`custom:lan-ports-card`**: lưới cổng switch gọn, mỗi thiết bị một hàng, dùng chung adapter
-cổng. Ô tô màu theo tốc độ link; viền đỏ = không có link, viền nét đứt = cổng tắt, viền sáng = đang có lưu lượng,
+cổng. Ô tô màu theo tốc độ link; xám = trống, viền đỏ = cổng phải có link mà mất link, sọc chéo = cổng tắt, viền sáng = đang có lưu lượng,
 ⚡ = PoE. Rê chuột (hoặc giữ) để xem thiết bị, IP, tốc độ, lưu lượng; chạm để mở entity của cổng.
 
 ```yaml
@@ -190,7 +201,7 @@ devices:
 
 | Khoá | Ý nghĩa |
 |---|---|
-| `devices` | **Bắt buộc.** Mỗi thiết bị có `name`, `ports` (adapter, như node) và `port_names` tuỳ chọn (`false` = ẩn cổng) |
+| `devices` | **Bắt buộc.** Mỗi thiết bị có `name`, `ports` (adapter, như node) và `port_names` tuỳ chọn (`false` = ẩn cổng), `expect_speed` tuỳ chọn (như node) |
 | `title`, `legend`, `idle_kbps`, `language` | Như LAN Topo Card |
 
 ## LAN Wi-Fi Card
@@ -222,6 +233,8 @@ sort: name        # name | signal (yếu trước) | speed
 | 10 Gbps | 2,5 Gbps | 1 Gbps | 100 Mbps | 10 Mbps | không có link |
 |---|---|---|---|---|---|
 | `#3b82f6` | `#14b8a6` | `#22c55e` | `#f59e0b` | `#9ca3af` | `#ef4444` |
+
+Ô cổng: nền theo tốc độ khi có link, xám khi trống, viền đỏ khi cổng phải có link (cổng nối node khác, hoặc đã đặt tên trong `port_names`) mà mất link, sọc chéo khi tắt, viền vàng khi chậm hơn `expect_speed`, tam giác trắng là uplink, ⚡ là đang cấp PoE.
 
 ## Phát triển
 

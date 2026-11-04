@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.6.1";
+export const VERSION = "0.7.0";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -164,6 +164,13 @@ export function normalizeConfig(config) {
     if (!raw || !raw.id) throw new Error("lan-topo-card: mỗi node cần `id`");
     const id = String(raw.id);
     if (nodes.has(id)) throw new Error(`lan-topo-card: trùng node id "${id}"`);
+    const { rows, block } = raw.faceplate ?? {};
+    if (rows != null && !(Number.isInteger(rows) && rows > 0)) {
+      throw new Error(`lan-topo-card: node "${id}" — faceplate.rows phải là số nguyên dương`);
+    }
+    if (block != null && !(Number.isInteger(block) && block >= 0)) {
+      throw new Error(`lan-topo-card: node "${id}" — faceplate.block phải là số nguyên không âm`);
+    }
     const type = raw.type in NODE_TYPES ? raw.type : "device";
     nodes.set(id, {
       ...raw,
@@ -443,6 +450,24 @@ export function visiblePorts(node, ports, hiddenNames, opts = {}) {
   });
 }
 
+/**
+ * Lớp CSS của ô cổng. Tách "trống" khỏi "lỗi": chỉ cổng phải có link (nối node khác, hoặc đã đặt
+ * tên trong port_names) mà mất link mới đỏ — switch 26 cổng còn 17 cổng trống không nên đỏ cả dải.
+ * `port_names: { ether5: { optional: true } }`: máy hay tắt, mất link không phải lỗi.
+ */
+export function portState(p, { meta = {}, uplink = false, linkPort = false, expect } = {}) {
+  const flags = [];
+  if (p.disabled) flags.push("dis");
+  else if (p.linked) flags.push("on");
+  else if (p.linked === false && !meta.optional && (linkPort || meta.name)) flags.push("fault");
+  else flags.push("off");
+  const want = parseLinkSpeed(meta.expect_speed ?? expect);
+  if (p.linked && want && p.speedMbps && p.speedMbps < want) flags.push("slow");
+  if (uplink) flags.push("uplink");
+  if (poeOn(p, meta)) flags.push("poe");
+  return flags.join(" ");
+}
+
 // ═══════════════════════════════ Wi-Fi ═══════════════════════════════
 
 export const QUALITY_COLORS = { good: "#22c55e", ok: "#f59e0b", poor: "#ef4444" };
@@ -590,18 +615,257 @@ export const LAYOUT = {
   vNodeH: 70,
   vPortH: 42,
   vGap: 10,
+  // dây vào cổng: viền .node và các làn ngang dưới đáy thẻ
+  nodeBorder: 1,
+  laneTop: 9,
+  laneStep: 7,
 };
+
+// ═══════════════════════════════ Mặt trước thiết bị ═══════════════════════════════
+
+/**
+ * Cách xếp cổng trên mặt trước, khoá là tiền tố của `model` (device registry). rows: số hàng;
+ * top: "even" = cổng chẵn ở hàng trên; block: số cột mỗi cụm; sfp: phía đặt cổng SFP.
+ */
+export const FACEPLATES = {
+  "CCR2004-16G-2S+": { rows: 2, top: "even", block: 4, sfp: "left" },
+  "CRS310-8G+2S+": { rows: 2, top: "even", block: 4, sfp: "left" },
+  "CRS326-24G-2S+": { rows: 2, top: "even", block: 4, sfp: "right" },
+  GS108PE: { rows: 1, block: 0 },
+};
+
+/** Cỡ ô: full = sơ đồ có dây; touch = danh sách/thẻ (đủ to để chạm); led = dải chấm của kiểu vòng. */
+export const FACE_METRICS = {
+  full: { cell: 16, cellH: 15, sfpW: 22, gap: 2, blockGap: 6, faceGap: 8, pad: 10, padB: 8, label: true },
+  touch: { cell: 26, cellH: 24, sfpW: 32, gap: 2, blockGap: 6, faceGap: 8, pad: 10, padB: 8, label: true },
+  led: { cell: 6, cellH: 6, sfpW: 9, gap: 1, blockGap: 3, faceGap: 4, pad: 10, padB: 6, label: false },
+};
+
+/** Spec mặt trước của node: null nếu tắt (`faceplate: false`) hoặc node không có cổng. YAML ghi đè. */
+export function faceplateSpec(node, device) {
+  if (node.faceplate === false || !node.ports) return null;
+  const model = String(node.model ?? device?.model ?? node.ports.prefix ?? "").toLowerCase();
+  const key = Object.keys(FACEPLATES).find((k) => model.startsWith(k.toLowerCase()));
+  return { ...(key ? FACEPLATES[key] : {}), ...(typeof node.faceplate === "object" ? node.faceplate : {}) };
+}
+
+/** Device của node: theo tên khai báo, không thấy thì suy từ entity của cổng đầu tiên (netgear_plus). */
+export function deviceOfNode(node, defs, devices, entities) {
+  const named = findDevice(devices, node.ports?.device ?? node.name);
+  if (named) return named;
+  for (const d of defs || []) {
+    const id = entities?.[d.link ?? d.rx ?? d.tx ?? ""]?.device_id;
+    if (id && devices?.[id]) return devices[id];
+  }
+  return undefined;
+}
+
+/** IP từ configuration_url của device ("http://192.168.10.1/" → "192.168.10.1"). */
+export function deviceIp(device) {
+  return String(device?.configuration_url ?? "").match(/\/\/(\d+\.\d+\.\d+\.\d+)/)?.[1] ?? null;
+}
+
+// Nhận cảm biến hệ thống theo tên entity vì entity id mỗi thiết bị một kiểu (mikrotik_cpu_load, crs326_cpu_load).
+const STAT_NAMES = {
+  cpu: /\bcpu (load|usage)\b/i,
+  ram: /\b(memory|ram) (usage|use|load)\b/i,
+  uptime: /\buptime\b/i,
+  temp: /\bcpu temp/i,
+};
+
+/**
+ * Entity CPU / RAM / uptime / nhiệt độ của device: { cpu, ram, uptime, temp }. `stats` trong YAML
+ * ghi đè từng khoá; `stats: false` tắt. Nhiệt độ thiếu "CPU temperature" thì lấy cảm biến temperature đầu tiên.
+ */
+export function deviceStats(node, device, entities, states) {
+  if (node.stats === false) return {};
+  const found = {};
+  const mine = device ? Object.values(entities || {}).filter((e) => e.device_id === device.id && e.entity_id?.startsWith("sensor.")) : [];
+  const nameOf = (e) => states?.[e.entity_id]?.attributes?.friendly_name ?? e.entity_id.replace(/_/g, " ");
+  for (const e of mine) {
+    const name = nameOf(e);
+    for (const [key, re] of Object.entries(STAT_NAMES)) if (!found[key] && re.test(name)) found[key] = e.entity_id;
+  }
+  found.temp ??= mine.find((e) => /\btemperature\b/i.test(nameOf(e)))?.entity_id;
+  return Object.fromEntries(Object.entries({ ...found, ...(typeof node.stats === "object" ? node.stats : {}) }).filter(([, v]) => v));
+}
+
+/** Uptime từ state: mốc khởi động (ISO) hoặc số giây. Trả { days } hoặc { hours }; đọc không được → null. */
+export function uptimeParts(state, now = Date.now()) {
+  const raw = String(state ?? "");
+  const boot = /^\d{4}-\d{2}-\d{2}/.test(raw) ? Date.parse(raw) : NaN;
+  const secs = Number.isFinite(boot) ? (now - boot) / 1000 : raw.trim() && Number.isFinite(Number(raw)) ? Number(raw) : NaN;
+  if (!Number.isFinite(secs) || secs < 0) return null;
+  return secs >= 86400 ? { days: Math.floor(secs / 86400) } : { hours: Math.floor(secs / 3600) };
+}
+
+/** Số cổng đang có thiết bị ở node và mọi nhánh phía sau (bỏ cổng nối giữa các node, cổng ẩn). */
+export function portsBehind(topo, portsByNode, id) {
+  const hidden = linkPortsOf(topo, id);
+  const node = topo.nodes.get(id);
+  const own = (portsByNode.get(id) || []).filter((p) => p.linked === true && !hidden.has(p.name) && !node.portNames[p.name]?.hide).length;
+  return (topo.children.get(id) || []).reduce((n, e) => n + portsBehind(topo, portsByNode, e.to), own);
+}
+
+/** Xếp cổng vào hàng/cột/cụm theo spec. Model lạ: ≤ 10 cổng RJ45 một hàng, nhiều hơn hai hàng. */
+export function portPanel(ports, spec = {}) {
+  const sfp = ports.filter((p) => /sfp/i.test(p.name)).sort((a, b) => naturalCompare(a.name, b.name));
+  const rj = ports.filter((p) => !/sfp/i.test(p.name)).sort((a, b) => naturalCompare(a.name, b.name));
+  const rows = spec.rows ?? (rj.length > 10 ? 2 : 1);
+  const cols = [];
+  for (let i = 0; i < rj.length; i += rows) {
+    const c = rj.slice(i, i + rows);
+    while (c.length < rows) c.push(null);
+    cols.push(spec.top === "even" ? c.reverse() : c);
+  }
+  const block = spec.block || cols.length;
+  const blocks = [];
+  for (let i = 0; i < cols.length; i += block) blocks.push(cols.slice(i, i + block));
+  return { rows, blocks, sfp, sfpSide: spec.sfp || "right", names: new Set(ports.map((p) => p.name)) };
+}
+
+/**
+ * Toạ độ từng ô trong dải (gốc = góc trên trái dải) — chỗ vẽ ô và chỗ dây cắm vào cùng lấy từ đây,
+ * không đo DOM. maxW: dải dài hơn thì các cụm xuống dòng, cụm rộng hơn maxW thì chia theo cột
+ * (danh sách trên điện thoại).
+ */
+export function panelLayout(panel, M = FACE_METRICS.full, maxW = Infinity) {
+  const whole = panel.blocks.map((cols) => ({ cols, sfp: false }));
+  if (panel.sfp.length) {
+    const g = { cols: panel.sfp.map((p) => [p]), sfp: true };
+    if (panel.sfpSide === "left") whole.unshift(g);
+    else whole.push(g);
+  }
+  const groups = whole.flatMap((g) => {
+    const cw = g.sfp ? M.sfpW : M.cell;
+    const fit = Math.max(1, Math.floor((maxW + M.gap) / (cw + M.gap)));
+    const parts = [];
+    for (let i = 0; i < g.cols.length; i += fit) parts.push({ ...g, cols: g.cols.slice(i, i + fit) });
+    return parts;
+  });
+  const rowH = panel.rows * M.cellH + (panel.rows - 1) * M.gap;
+  const cells = [];
+  let x = 0;
+  let y = 0;
+  let w = 0;
+  groups.forEach((g, i) => {
+    const cw = g.sfp ? M.sfpW : M.cell;
+    const gw = g.cols.length * cw + (g.cols.length - 1) * M.gap;
+    const gap = g.sfp || groups[i - 1]?.sfp ? M.faceGap : M.blockGap;
+    if (x && x + gap + gw > maxW) {
+      x = 0;
+      y += rowH + M.blockGap;
+    } else if (x) x += gap;
+    g.cols.forEach((col, ci) =>
+      col.forEach((port, ri) => {
+        if (!port) return;
+        const top = g.sfp ? rowH - M.cellH : ri * (M.cellH + M.gap);
+        cells.push({ port, x: x + ci * (cw + M.gap), y: y + top, w: cw, h: M.cellH, sfp: g.sfp });
+      }),
+    );
+    x += gw;
+    w = Math.max(w, x);
+  });
+  return { x: M.pad, y: 0, w, h: y + rowH, cells, label: M.label };
+}
+
+/**
+ * Cỡ thẻ node theo dải cổng: { w, h, face } (face = panelLayout đã gắn vị trí trong thẻ). Không có
+ * dải → giữ nguyên w, h. head: chiều cao tối thiểu phần chữ phía trên dải.
+ */
+export function faceBox(it, w, h, M = FACE_METRICS.full, head = 0, maxW = Infinity) {
+  if (!it.panel) return { w, h, face: null };
+  const face = panelLayout(it.panel, M, maxW - 2 * M.pad);
+  // Dải chấm (kiểu vòng) không hiện phần chi tiết nên không cần chỗ cho nó.
+  const top = M.label ? Math.max(head, it.head ?? 0) : head;
+  face.y = top;
+  const need = Math.max(w, face.w + 2 * M.pad, M.label ? (it.minW ?? 0) : 0);
+  return { w: Math.min(need, Math.max(w, maxW)), h: top + face.h + M.padB, face };
+}
+
+/** Vị trí x dây rời từng ô (tên cổng → x), cùng quy tắc với portEnd. */
+function exitOrder(panel) {
+  const f = panelLayout(panel);
+  return new Map(f.cells.map((c) => [c.port.name, c.y + c.h >= f.h - 0.5 ? c.x + c.w / 2 : c.x - 1]));
+}
+
+/** Chỗ dành dưới đáy thẻ cho n dây đi ngang. */
+const laneSpace = (n, L) => (n ? L.laneTop + n * L.laneStep + 6 : 0);
+
+/**
+ * Các dây của một cạnh: mỗi cổng một dây. Chỉ tính cổng có ô trên dải; cạnh không có ô nào ở cả hai
+ * đầu → [] (giữ đường nối thẻ–thẻ). Một đầu thiếu → dây vào cạnh thẻ ở đầu đó.
+ */
+export function planWires(edge, panels) {
+  const has = (id, name) => panels.get(id)?.panel.names.has(name);
+  const pick = (list, id, i) => {
+    const name = list[i] ?? list[list.length - 1];
+    return has(id, name) ? name : null;
+  };
+  // Ghép theo vị trí khai báo, lọc sau: cổng ẩn ở một đầu không làm lệch cặp của các dây còn lại.
+  return Array.from({ length: Math.max(edge.fromPorts.length, edge.toPorts.length) }, (_, i) => ({
+    from: pick(edge.fromPorts, edge.from, i),
+    to: pick(edge.toPorts, edge.to, i),
+    i,
+  })).filter((w) => w.from !== null || w.to !== null);
+}
+
+/** Lưu lượng của 1 dây: cạnh một dây dùng số của cả cạnh (kể cả `down`/`up` khai tay), nhiều dây thì theo từng cổng. */
+export function wireTraffic(edge, wire, wireCount, portsByNode, whole) {
+  if (wireCount < 2) return whole;
+  const find = (id, name) => (name === null ? undefined : portsByNode.get(id)?.find((p) => p.name === name));
+  const a = find(edge.from, wire.from);
+  const b = find(edge.to, wire.to);
+  const p = a || b;
+  if (!p) return whole;
+  const both = [a, b].filter(Boolean);
+  const speeds = both.map((x) => x.speedMbps).filter(Boolean);
+  return {
+    down: a ? p.txBps : p.rxBps,
+    up: a ? p.rxBps : p.txBps,
+    speedMbps: edge.speed ? whole?.speedMbps : speeds.length ? Math.max(...speeds) : null,
+    linked: both.some((x) => x.linked !== false),
+  };
+}
 
 /**
  * Cây hiển thị: node + (nếu đang mở) lá cổng. Lá cổng đứng TRƯỚC node con để cột thiết bị
  * nằm sát switch, node con (switch tiếp theo) ở dưới.
  */
-export function buildTree(topo, expanded, portLeaves) {
+export function buildTree(topo, expanded, portLeaves, panels = new Map(), { wires = "port" } = {}) {
+  const plans = new Map();
+  const lanes = new Map();
+  if (wires !== "node") {
+    for (const e of topo.edges) {
+      const plan = planWires(e, panels);
+      if (!plan.length) continue;
+      plans.set(e.key, plan);
+      for (const id of [e.from, e.to]) lanes.set(id, (lanes.get(id) ?? 0) + plan.length);
+    }
+  }
   const make = (id, edge) => {
     const kids = [];
-    if (expanded.has(id)) for (const p of portLeaves.get(id) || []) kids.push({ kind: "port", nodeId: id, port: p, key: `${id}:${p.name}`, children: [] });
+    const leaves = expanded.has(id) ? portLeaves.get(id) || [] : [];
+    const panel = wires !== "node" ? panels.get(id)?.panel : undefined;
+    // Có dây vào ô: xếp lá theo vị trí ô, ô phải nhất lên đầu, để các dây song song không cắt nhau.
+    const exits = panel ? exitOrder(panel) : new Map();
+    const sorted = panel ? [...leaves].sort((a, b) => (exits.get(b.name) ?? 0) - (exits.get(a.name) ?? 0)) : leaves;
+    const plugged = sorted.filter((p) => exits.has(p.name)).length;
+    for (const p of sorted) {
+      const leaf = { kind: "port", nodeId: id, port: p, key: `${id}:${p.name}`, children: [] };
+      if (exits.has(p.name)) leaf.plug = true;
+      kids.push(leaf);
+    }
     for (const e of topo.children.get(id) || []) kids.push(make(e.to, e));
-    return { kind: "node", id, edge, key: id, children: kids };
+    const it = { kind: "node", id, edge, key: id, children: kids };
+    if (panels.has(id)) Object.assign(it, panels.get(id));
+    if (edge && plans.has(edge.key)) it.wires = plans.get(edge.key);
+    const count = (lanes.get(id) ?? 0) + plugged;
+    if (count) it.lanes = count;
+    if (plugged) it.plugged = plugged;
+    const fan = plugged + (topo.children.get(id) || []).reduce((n, e) => n + (plans.get(e.key)?.length ?? 0), 0);
+    if (fan) it.fan = fan;
+    return it;
   };
   return topo.roots.map((r) => make(r, null));
 }
@@ -612,10 +876,11 @@ export function buildTree(topo, expanded, portLeaves) {
  * xếp dọc trong 1 cột thay vì mỗi node 1 cột — sơ đồ hẹp lại, đỡ phải co chữ.
  */
 export function layoutHorizontal(trees, L = LAYOUT, { chain = "row" } = {}) {
-  const size = (it) => (it.kind === "port" ? [L.portW, L.portH] : [L.nodeW, L.nodeH]);
+  const dress = (it) => (it.kind === "port" ? { w: L.portW, h: L.portH, face: null } : faceBox(it, L.nodeW, L.nodeH));
+  const under = (it) => laneSpace(it.lanes, L);
   const gap = (a, b) => (a.kind === "port" && b.kind === "port" ? L.portGap : L.rowGap);
   const measure = (it) => {
-    const [, h] = size(it);
+    const h = dress(it).h + under(it);
     let sum = 0;
     it.children.forEach((c, i) => {
       sum += measure(c) + (i ? gap(it.children[i - 1], c) : 0);
@@ -628,9 +893,10 @@ export function layoutHorizontal(trees, L = LAYOUT, { chain = "row" } = {}) {
   const links = [];
   let width = 0;
   const place = (it, x, top, parentBox) => {
-    const [w, h] = size(it);
-    const y = top + (it._h - h) / 2;
-    const box = { kind: it.kind, key: it.key, id: it.id, nodeId: it.nodeId, port: it.port, edge: it.edge, x, y, w, h };
+    const { w, h, face } = dress(it);
+    const below = under(it);
+    const y = top + (it._h - h - below) / 2;
+    const box = { kind: it.kind, key: it.key, id: it.id, nodeId: it.nodeId, port: it.port, edge: it.edge, x, y, w, h, face, below };
     boxes.push(box);
     width = Math.max(width, x + w);
     if (parentBox) {
@@ -640,6 +906,8 @@ export function layoutHorizontal(trees, L = LAYOUT, { chain = "row" } = {}) {
         edge: it.edge,
         port: it.port,
         nodeId: it.nodeId,
+        wires: it.wires,
+        plug: it.plug,
         x1: parentBox.x + parentBox.w, y1: parentBox.y + parentBox.h / 2,
         x2: x, y2: y + h / 2,
       });
@@ -647,7 +915,7 @@ export function layoutHorizontal(trees, L = LAYOUT, { chain = "row" } = {}) {
     let cy = top + (it._h - it._ch) / 2;
     it.children.forEach((c, i) => {
       if (i) cy += gap(it.children[i - 1], c);
-      place(c, x + w + L.colGap, cy, box);
+      place(c, x + w + L.colGap + Math.max(0, (it.fan ?? 0) * 6 + 14 - 60), cy, box);
       cy += c._h;
     });
   };
@@ -656,7 +924,8 @@ export function layoutHorizontal(trees, L = LAYOUT, { chain = "row" } = {}) {
     const lead = [t];
     if (chain === "stack") {
       let cur = t;
-      while (cur.children.length === 1 && cur.children[0].kind === "node") {
+      // Thẻ có dải cổng không xếp chồng: thẻ rộng hơn cột, và dây vào cổng cần đi vòng dưới thẻ con.
+      while (cur.children.length === 1 && cur.children[0].kind === "node" && !cur.panel && !cur.children[0].panel) {
         cur = cur.children[0];
         lead.push(cur);
       }
@@ -693,7 +962,7 @@ export function layoutHorizontal(trees, L = LAYOUT, { chain = "row" } = {}) {
         l.y2 += shift;
       }
     }
-    top = Math.max(...mine.map((b) => b.y + b.h));
+    top = Math.max(...mine.map((b) => b.y + b.h + (b.below ?? 0)));
   });
   for (const t of trees) cleanup(t);
   return { boxes, links, width: width + L.pad, height: top + L.pad, mode: "horizontal" };
@@ -751,7 +1020,16 @@ export function layoutRadial(trees, { variant = "radial", hub = true } = {}, L =
   const root = trees.length === 1 ? (hub ? hubRoot(trees[0]) : trees[0]) : { kind: "virtual", key: "__root", children: trees };
   const span = variant === "arc" ? Math.PI : 2 * Math.PI;
   countLeaves(root);
-  const size = (it) => (it.kind === "virtual" ? [0, 0] : it.kind === "port" ? [L.rPortW, L.rPortH] : [L.rNodeW, L.rNodeH]);
+  const dress = (it) =>
+    it.kind === "virtual"
+      ? { w: 0, h: 0, face: null }
+      : it.kind === "port"
+        ? { w: L.rPortW, h: L.rPortH, face: null }
+        : faceBox(it, L.rNodeW, L.rNodeH, FACE_METRICS.led, L.rNodeH, L.rNodeW);
+  const size = (it) => {
+    const { w, h } = dress(it);
+    return [w, h];
+  };
   let byDepth;
   const walk = (it, d) => {
     it._d = d;
@@ -805,8 +1083,8 @@ export function layoutRadial(trees, { variant = "radial", hub = true } = {}, L =
     const r = radius[it._d];
     const [x, y] = polar(r, a);
     if (it.kind !== "virtual") {
-      const [w, h] = size(it);
-      boxes.push({ kind: it.kind, key: it.key, id: it.id, nodeId: it.nodeId, port: it.port, edge: it.edge, x: x - w / 2, y: y - h / 2, w, h });
+      const { w, h, face } = dress(it);
+      boxes.push({ kind: it.kind, key: it.key, id: it.id, nodeId: it.nodeId, port: it.port, edge: it.edge, x: x - w / 2, y: y - h / 2, w, h, face });
       if (parent && parent.kind !== "virtual") {
         const pa = parent._a;
         const pr = radius[parent._d];
@@ -866,9 +1144,9 @@ export function layoutVertical(trees, containerWidth, L = LAYOUT) {
   let y = L.pad;
   const walk = (it, depth, parentBox) => {
     const x = L.pad + depth * L.vIndent;
-    const h = it.kind === "port" ? L.vPortH : L.vNodeH;
     const w = Math.max(120, containerWidth - x - L.pad);
-    const box = { kind: it.kind, key: it.key, id: it.id, nodeId: it.nodeId, port: it.port, edge: it.edge, x, y, w, h };
+    const { h, face } = it.kind === "port" ? { h: L.vPortH, face: null } : faceBox(it, w, L.vNodeH, FACE_METRICS.touch, L.vNodeH, w);
+    const box = { kind: it.kind, key: it.key, id: it.id, nodeId: it.nodeId, port: it.port, edge: it.edge, x, y, w, h, face };
     boxes.push(box);
     if (parentBox) {
       links.push({
@@ -891,7 +1169,7 @@ export function layoutVertical(trees, containerWidth, L = LAYOUT) {
 /** Đường nối kiểu danh sách: từ đáy node xuống theo trục `sx`, rẽ phải vào giữa ô con. */
 function listLink(it, parentBox, box, sx) {
   return {
-    key: it.key, kind: it.kind, edge: it.edge, port: it.port, nodeId: it.nodeId, dir: "list",
+    key: it.key, kind: it.kind, edge: it.edge, port: it.port, nodeId: it.nodeId, dir: "list", plug: it.plug,
     x1: sx, y1: parentBox.y + parentBox.h,
     x2: box.x, y2: box.y + box.h / 2,
   };
@@ -904,10 +1182,15 @@ function listLink(it, parentBox, box, sx) {
  */
 export function layoutDown(trees, L = LAYOUT) {
   const isPort = (c) => c.kind === "port";
+  const dress = (it) => faceBox(it, L.nodeW, L.nodeH);
+  // Dây vào cổng của node con đi vòng bên trái thẻ con, xuống tới dải cổng ở đáy thẻ.
+  const gutter = (it) => (it.wires ? 8 + it.wires.length * L.laneStep : 0);
+  // Dây cắm vào ô đi xuống theo trục riêng bên trái cột cổng.
+  const indent = (it) => Math.max(L.dIndent, 12 + (it.plugged ?? 0) * 4);
   const measure = (it) => {
-    let w = it.children.some(isPort) ? L.dIndent + L.portW : 0;
-    for (const c of it.children.filter((c) => !isPort(c))) w += (w ? L.dColGap : 0) + measure(c);
-    it._w = Math.max(L.nodeW, w);
+    let w = it.children.some(isPort) ? indent(it) + L.portW : 0;
+    for (const c of it.children.filter((c) => !isPort(c))) w += (w ? L.dColGap : 0) + gutter(c) + measure(c);
+    it._w = Math.max(dress(it).w, w);
     return it._w;
   };
   const boxes = [];
@@ -915,35 +1198,38 @@ export function layoutDown(trees, L = LAYOUT) {
   let width = 0;
   let height = 0;
   const place = (it, x, y, parentBox) => {
-    const box = { kind: "node", key: it.key, id: it.id, edge: it.edge, x, y, w: L.nodeW, h: L.nodeH };
+    const { w: nodeW, h: nodeH, face } = dress(it);
+    const below = laneSpace(it.lanes, L);
+    const box = { kind: "node", key: it.key, id: it.id, edge: it.edge, x, y, w: nodeW, h: nodeH, face, below };
     boxes.push(box);
     const ports = it.children.filter(isPort);
     const kids = it.children.filter((c) => !isPort(c));
     // Cổng: chồng dưới node, nối từ trục bên trái như danh sách.
-    let py = y + L.nodeH + 20;
+    let py = y + nodeH + Math.max(20, below + 6);
     for (const c of ports) {
-      const pb = { kind: "port", key: c.key, nodeId: c.nodeId, port: c.port, x: x + L.dIndent, y: py, w: L.portW, h: L.portH };
+      const pb = { kind: "port", key: c.key, nodeId: c.nodeId, port: c.port, x: x + indent(it), y: py, w: L.portW, h: L.portH };
       boxes.push(pb);
       links.push(listLink(c, box, pb, x + 14));
       py += L.portH + L.portGap;
     }
-    width = Math.max(width, x + (ports.length ? L.dIndent + L.portW : L.nodeW));
-    height = Math.max(height, ports.length ? py - L.portGap : y + L.nodeH);
+    width = Math.max(width, x + nodeW, ports.length ? x + indent(it) + L.portW : 0);
+    height = Math.max(height, ports.length ? py - L.portGap : y + nodeH + below);
     // Node con: một hàng bên phải cột cổng; đường đi ngang sát đáy node rồi thả xuống.
-    let cx = x + (ports.length ? L.dIndent + L.portW + L.dColGap : 0);
-    const cy = y + L.nodeH + L.dRowGap;
-    const busY = y + L.nodeH + 8;
+    let cx = x + (ports.length ? indent(it) + L.portW + L.dColGap : 0);
+    const cy = y + nodeH + below + L.dRowGap;
+    const busY = y + nodeH + Math.max(8, below);
     for (const c of kids) {
-      const sx = x + L.nodeW / 2;
-      const tx = cx + L.nodeW / 2;
-      const pts = tx === sx ? [[sx, y + L.nodeH], [tx, cy]] : [[sx, y + L.nodeH], [sx, busY], [tx, busY], [tx, cy]];
+      const kx = cx + gutter(c);
+      const sx = x + nodeW / 2;
+      const tx = kx + dress(c).w / 2;
+      const pts = tx === sx ? [[sx, y + nodeH], [tx, cy]] : [[sx, y + nodeH], [sx, busY], [tx, busY], [tx, cy]];
       links.push({
-        key: c.key, kind: "node", edge: c.edge, pts,
-        x1: sx, y1: y + L.nodeH, x2: tx, y2: cy,
+        key: c.key, kind: "node", edge: c.edge, wires: c.wires, pts,
+        x1: sx, y1: y + nodeH, x2: tx, y2: cy,
         lx: tx + 8, ly: (busY + cy) / 2 + 2, lcls: "v",
       });
-      place(c, cx, cy, box);
-      cx += c._w + L.dColGap;
+      place(c, kx, cy, box);
+      cx = kx + c._w + L.dColGap;
     }
   };
   let x = L.pad;
@@ -984,7 +1270,9 @@ export function layoutCards(trees, containerWidth, L = LAYOUT) {
     const col = colY.indexOf(Math.min(...colY));
     const fx = L.pad + col * (cardW + L.cardGap);
     const fy = colY[col];
-    const box = { kind: "node", key: it.key, id: it.id, edge: it.edge, x: fx + L.cardPad, y: fy + L.cardPad, w: cardW - 2 * L.cardPad, h: L.nodeH };
+    const innerW = cardW - 2 * L.cardPad;
+    const { h, face } = faceBox(it, innerW, L.nodeH, FACE_METRICS.touch, L.nodeH, innerW);
+    const box = { kind: "node", key: it.key, id: it.id, edge: it.edge, x: fx + L.cardPad, y: fy + L.cardPad, w: innerW, h, face };
     boxes.push(box);
     let y = box.y + box.h + 10;
     const ports = it.children.filter((c) => c.kind === "port");
@@ -1045,6 +1333,146 @@ export function linkPath(l, mode) {
   return `M${r(l.x1)} ${r(l.y1)}C${r(mx)} ${r(l.y1)} ${r(mx)} ${r(l.y2)} ${r(l.x2)} ${r(l.y2)}`;
 }
 
+/**
+ * Điểm cắm vào ô cổng. Dây luôn ra từ đáy thẻ: ô hàng dưới đi thẳng xuống từ mép dưới ô; ô hàng trên
+ * đi theo khe giữa hai cột tới ngang ô (không che số cổng, không đè ô hàng dưới); chấm cắm rộng hơn
+ * khe nên lệch sang phải, chỉ chạm ô đích (`plug`). Toạ độ tính cả viền thẻ: .pface nằm trong padding box.
+ */
+function portEnd(box, name) {
+  const f = box.face;
+  const c = f?.cells.find((cell) => cell.port.name === name);
+  if (!c) return null;
+  const left = box.x + LAYOUT.nodeBorder + f.x + c.x;
+  const top = box.y + LAYOUT.nodeBorder + f.y + c.y;
+  if (c.y + c.h >= f.h - 0.5) return { x: left + c.w / 2, y: top + c.h + 1 };
+  const y = top + c.h / 2;
+  return { x: left - 1, y, plug: [left + 1, y] };
+}
+
+/** Bỏ điểm trùng và điểm giữa thẳng hàng để linkPath chỉ bo ở góc thật. */
+function cleanPts(P) {
+  const out = [];
+  for (const pt of P) {
+    const a = out[out.length - 1];
+    if (a && a[0] === pt[0] && a[1] === pt[1]) continue;
+    const z = out[out.length - 2];
+    if (z && ((z[0] === a[0] && a[0] === pt[0]) || (z[1] === a[1] && a[1] === pt[1]))) out.pop();
+    out.push(pt);
+  }
+  return out;
+}
+
+/**
+ * Thay đường nối thẻ–thẻ bằng dây cắm thẳng vào ô cổng (sơ đồ ngang, cây dọc). Dây ra đáy thẻ cha,
+ * chạy trong làn dưới thẻ, sang kênh dọc giữa 2 thẻ rồi vào làn dưới thẻ con. Thứ tự làn giảm dây
+ * cắt nhau: dây ra — cổng càng trái làn càng sâu; dây vào — cổng càng phải làn càng sâu. Lá cổng
+ * (thiết bị cuối) cũng nhận dây từ đúng ô của nó.
+ */
+export function routeWires(lay, L = LAYOUT) {
+  const nodes = new Map(lay.boxes.filter((b) => b.kind === "node").map((b) => [b.id, b]));
+  const down = lay.mode === "down";
+  const wires = [];
+  const links = [];
+  for (const l of lay.links) {
+    const owner = l.plug ? nodes.get(l.nodeId) : null;
+    const end = owner && portEnd(owner, l.port.name);
+    if (end) {
+      wires.push({ l, P: owner, C: lay.boxes.find((b) => b.key === l.key), a: end, b: null, from: l.port.name, to: null, leaf: true });
+      continue;
+    }
+    if (!l.wires) {
+      links.push(l);
+      continue;
+    }
+    const P = nodes.get(l.edge.from);
+    const C = nodes.get(l.edge.to);
+    const list = l.wires
+      .map((w) => ({ ...w, l, P, C, a: portEnd(P, w.from), b: portEnd(C, w.to), n: l.wires.length }))
+      .sort((u, v) => (u.b?.x ?? u.a?.x) - (v.b?.x ?? v.a?.x));
+    // Thẻ cha không có ô cổng: dây tách đều dọc đáy thẻ, cổng trái nhất xuất phát xa nhất bên phải.
+    const step = Math.min(22, (P.w - 32) / Math.max(1, list.length - 1));
+    list.forEach((w, i) => {
+      w.first = i === 0;
+      w.a ??= { x: P.x + P.w - 16 - i * step, y: P.y + P.h };
+    });
+    wires.push(...list);
+  }
+  for (const box of nodes.values()) {
+    // Cây dọc: dây tới lá đi về bên trái nên thứ tự làn ngược lại, và nằm dưới dây sang phải.
+    const out = wires
+      .filter((w) => w.P === box)
+      .sort((u, v) => (down ? !!u.leaf - !!v.leaf || (u.leaf ? u.a.x - v.a.x : v.a.x - u.a.x) : v.a.x - u.a.x));
+    const inn = wires.filter((w) => w.C === box && w.b).sort((u, v) => u.b.x - v.b.x);
+    const lane = (i) => box.y + box.h + L.laneTop + i * L.laneStep;
+    out.forEach((w, i) => (w.ya = lane(i)));
+    inn.forEach((w, i) => (w.yb = lane(out.length + i)));
+  }
+  // Làn dưới thẻ con đã thấp hơn đáy thẻ cha thì đi thẳng, miễn không vướng thẻ khác dưới thẻ cha.
+  const clear = (w) =>
+    !lay.boxes.some((b) => b !== w.P && b.x <= w.a.x && w.a.x <= b.x + b.w && b.y < w.yb && b.y + b.h > w.P.y + w.P.h);
+  const channel = new Map();
+  const nextChannel = (box) => {
+    const i = channel.get(box) ?? 0;
+    channel.set(box, i + 1);
+    return i;
+  };
+  for (const w of wires) {
+    w.midY = w.C.y + w.C.h / 2;
+    w.straight = !down && w.b && w.yb > w.P.y + w.P.h + 4 && clear(w);
+  }
+  // Kênh dọc: dây đi lên thì làn càng sâu kênh càng xa, dây đi xuống thì ngược lại — cùng thứ tự
+  // lá trên → dưới nên các dây không cắt nhau. Hai nhóm dùng chung bề ngang vì không chồng theo y.
+  for (const box of nodes.values()) {
+    const mine = wires.filter((w) => w.P === box && !w.straight);
+    if (down) {
+      mine.filter((w) => w.leaf).sort((u, v) => u.ya - v.ya).forEach((w, i) => (w.ch = box.x + 6 + i * 4));
+      continue;
+    }
+    const target = (w) => (w.b ? w.yb : w.midY);
+    const place = (list) => list.forEach((w, i) => (w.ch = box.x + box.w + 10 + i * 6));
+    place(mine.filter((w) => target(w) < w.ya).sort((u, v) => u.ya - v.ya));
+    place(mine.filter((w) => target(w) >= w.ya).sort((u, v) => v.ya - u.ya));
+  }
+  const byTarget = [...wires].sort((u, v) => u.C.y - v.C.y);
+  const wireOf = new Map();
+  for (const w of byTarget) {
+    const { P, C, a, b, ya, yb, midY } = w;
+    if (w.leaf) {
+      const pts = cleanPts([[a.x, a.y], [a.x, ya], [w.ch, ya], [w.ch, midY], [C.x, midY]]);
+      wireOf.set(`${P.id}/${w.from}`, w.l.key);
+      links.push({
+        ...w.l, dir: undefined, pts, wire: { leaf: true, count: 1 },
+        x1: a.x, y1: a.y, x2: C.x, y2: midY,
+        plugs: [a.plug ?? [a.x, a.y]],
+      });
+      continue;
+    }
+    const key = `${w.l.key}#${w.i}`;
+    let pts;
+    let ch = w.ch;
+    if (w.straight) pts = [[a.x, a.y], [a.x, yb], [b.x, yb], [b.x, b.y]];
+    else if (down && !b) pts = [[a.x, a.y], [a.x, ya], [C.x + C.w / 2, ya], [C.x + C.w / 2, C.y]];
+    else {
+      if (down) ch = C.x - 8 - nextChannel(C) * L.laneStep;
+      pts = [[a.x, a.y], [a.x, ya], [ch, ya], ...(b ? [[ch, yb], [b.x, yb], [b.x, b.y]] : [[ch, midY], [C.x, midY]])];
+    }
+    if (w.from !== null) wireOf.set(`${P.id}/${w.from}`, key);
+    if (w.to !== null) wireOf.set(`${C.id}/${w.to}`, key);
+    const clean = cleanPts(pts);
+    const z = clean[clean.length - 1];
+    links.push({
+      key, kind: "node", edge: w.l.edge, pts: clean,
+      wire: { from: w.from, to: w.to, count: w.n, label: w.first },
+      x1: a.x, y1: a.y, x2: z[0], y2: z[1],
+      plugs: [w.from !== null ? a.plug ?? [a.x, a.y] : null, w.to !== null ? b?.plug ?? z : null].filter(Boolean),
+      lx: down ? (ch ?? C.x) + 5 : C.x - 6,
+      ly: down ? (ya + C.y) / 2 : midY,
+      lcls: down ? "v" : "w",
+    });
+  }
+  return { ...lay, links, wireOf, wired: wires.length > 0 };
+}
+
 /** Chọn bố cục + tỉ lệ co cho vừa bề ngang khung. */
 export function fitLayout(trees, width, opts = {}) {
   const breakpoint = opts.breakpoint ?? 600;
@@ -1053,18 +1481,24 @@ export function fitLayout(trees, width, opts = {}) {
   const mode = opts.layout ?? "auto";
   if (mode === "radial" || mode === "arc" || mode === "down" || mode === "cards") {
     const g =
-      mode === "down" ? layoutDown(trees) : mode === "cards" ? layoutCards(trees, width) : layoutRadial(trees, { variant: mode });
+      mode === "down" ? routeWires(layoutDown(trees)) : mode === "cards" ? layoutCards(trees, width) : layoutRadial(trees, { variant: mode });
     const scale = Math.min(maxScale, width / g.width);
     return { ...g, scale, offsetX: Math.max(0, (width - g.width * scale) / 2) };
   }
   if (mode !== "vertical") {
-    const h = layoutHorizontal(trees, LAYOUT, { chain: opts.chain ?? "row" });
+    const h = routeWires(layoutHorizontal(trees, LAYOUT, { chain: opts.chain ?? "row" }));
     const scale = Math.min(maxScale, width / h.width);
     if (mode === "horizontal" || (width >= breakpoint && scale >= minScale)) {
       return { ...h, scale, offsetX: Math.max(0, (width - h.width * scale) / 2) };
     }
   }
   return { ...layoutVertical(trees, width), scale: 1, offsetX: 0 };
+}
+
+/** Mẫu đang dùng: chọn trên thẻ > `detail:` trong YAML > đầy đủ. Không có nút chuyển thì chỉ YAML quyết định. */
+export function detailMode(config, picked) {
+  if (config.view_switch !== false && (picked === "simple" || picked === "full")) return picked;
+  return config.detail === "simple" ? "simple" : "full";
 }
 
 /** Các kiểu xem trên nút chuyển: [layout, icon]. */
@@ -1093,6 +1527,17 @@ const STRINGS = {
     up_dev: "↑ từ thiết bị",
     no_link: "Không có link",
     poe: "PoE",
+    empty: "trống",
+    fault: "lỗi: phải có link",
+    slow: "chậm hơn kỳ vọng",
+    slow_tip: (want) => `chậm hơn kỳ vọng ${want}`,
+    uplink: "uplink",
+    n_ports: (n) => `${n} cổng`,
+    behind: (n) => `${n} phía sau`,
+    days: (n) => `${n} ngày`,
+    hours: (n) => `${n} giờ`,
+    detail_simple: "Đơn giản",
+    detail_full: "Đầy đủ",
     moving: "đường chạy = có lưu lượng",
     top: "Đang dùng mạng nhiều nhất",
     view_auto: "Tự động",
@@ -1121,6 +1566,17 @@ const STRINGS = {
     up_dev: "↑ from device",
     no_link: "No link",
     poe: "PoE",
+    empty: "empty",
+    fault: "fault: should be linked",
+    slow: "slower than expected",
+    slow_tip: (want) => `slower than expected ${want}`,
+    uplink: "uplink",
+    n_ports: (n) => `${n} ports`,
+    behind: (n) => `${n} behind`,
+    days: (n) => `${n}d`,
+    hours: (n) => `${n}h`,
+    detail_simple: "Simple",
+    detail_full: "Full",
     moving: "moving line = traffic",
     top: "Top talkers",
     view_auto: "Auto",
@@ -1144,6 +1600,21 @@ const STRINGS = {
 
 export function strings(lang) {
   return String(lang || "").toLowerCase().startsWith("vi") ? STRINGS.vi : STRINGS.en;
+}
+
+/** Tooltip của ô cổng: thiết bị, IP, tốc độ, lưu lượng. */
+function portTip(owner, p, meta, T, locale, expect) {
+  const who = meta.name || p.device || p.comment;
+  const want = parseLinkSpeed(meta.expect_speed ?? expect);
+  return [
+    `${owner} · ${p.name}${who ? ` — ${who}` : ""}`,
+    meta.ip || p.deviceIp,
+    p.disabled ? T.disabled : p.linked ? speedLabel(p.speedMbps) || "" : T.no_link,
+    p.linked ? `↓${formatRate(p.txBps, locale)} ↑${formatRate(p.rxBps, locale)}` : "",
+    p.linked && want && p.speedMbps && p.speedMbps < want ? T.slow_tip(speedLabel(want)) : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 // ═══════════════════════════════ Phần tử Lovelace ═══════════════════════════════
@@ -1207,6 +1678,77 @@ async function defineCard() {
       box-shadow: 0 0 6px var(--c);
       margin-right: 5px;
       vertical-align: -1px;
+    }
+    .legend i.off,
+    .legend i.dis,
+    .legend i.fault {
+      box-shadow: none;
+      box-sizing: border-box;
+    }
+    .legend i.off {
+      background: rgba(148, 163, 184, 0.07);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+    }
+    .legend i.dis {
+      background: repeating-linear-gradient(45deg, rgba(148, 163, 184, 0.08) 0 3px, rgba(148, 163, 184, 0.26) 3px 5px);
+    }
+    .legend i.fault {
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid #ef4444;
+    }
+    .legend i.slow {
+      --c: #9ca3af;
+      outline: 1.5px solid #fbbf24;
+      outline-offset: 1px;
+    }
+    .pt {
+      position: relative;
+      box-sizing: border-box;
+      min-width: 30px;
+      height: 26px;
+      padding: 0 5px;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: box-shadow 0.2s, filter 0.2s;
+    }
+    .pt.on {
+      background: color-mix(in srgb, var(--c) 78%, #0a1122);
+      color: #06101f;
+      box-shadow: 0 0 6px color-mix(in srgb, var(--c) 45%, transparent);
+    }
+    .pt.on.busy,
+    .pt.on.hot {
+      box-shadow: 0 0 0 1px #fff8, 0 0 11px var(--c);
+    }
+    .pt.off {
+      background: rgba(148, 163, 184, 0.07);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      color: #64748b;
+    }
+    .pt.fault {
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid #ef4444;
+      color: #fca5a5;
+    }
+    .pt.dis {
+      background: repeating-linear-gradient(45deg, rgba(148, 163, 184, 0.08) 0 3px, rgba(148, 163, 184, 0.26) 3px 5px);
+      color: #64748b;
+    }
+    .pt.slow {
+      outline: 1.5px solid #fbbf24;
+      outline-offset: 1px;
+    }
+    .pt:hover {
+      filter: brightness(1.2);
     }
   `;
 
@@ -1282,6 +1824,11 @@ async function defineCard() {
         this._view = VIEWS.some(([m]) => m === saved && m !== "auto") ? saved : null;
       } catch (_e) {
         this._view = null;
+      }
+      try {
+        this._detail = localStorage.getItem(this._detailKey(config));
+      } catch (_e) {
+        this._detail = null;
       }
       const motion = ["auto", "off"].includes(config.motion) ? config.motion : "on";
       this.setAttribute("motion", motion);
@@ -1369,7 +1916,30 @@ async function defineCard() {
         traffic.set(e.key, t);
       }
 
-      const trees = buildTree(this._topo, this._expanded, leaves);
+      // Mẫu đầy đủ: thẻ có dải cổng, dây vào cổng. Mẫu đơn giản: không có panels → thẻ gọn như cũ.
+      const panels = new Map();
+      this._cardInfo = new Map();
+      if (this._detailMode() === "full") {
+        for (const [id, ports] of portsByNode) {
+          const node = this._topo.nodes.get(id);
+          const device = deviceOfNode(node, this._found.get(id)?.defs, this.hass.devices, this.hass.entities);
+          const spec = faceplateSpec(node, device);
+          const shown = ports.filter((p) => !node.portNames[p.name]?.hide);
+          if (!spec || !shown.length) continue;
+          const stats = this._statsOf(id, node, device);
+          Object.values(stats).forEach((e) => this._tracked.add(e));
+          const sub = this._cardSub(node, device);
+          this._cardInfo.set(id, { device, stats, sub });
+          const hasStats = Object.keys(stats).length > 0;
+          const lines = (sub ? 1 : 0) + 1 + (this._uplinkEdge(id) ? 1 : 0) + (hasStats ? 1 : 0);
+          // Chữ trên thẻ không được cắt: ước lượng 6,4px mỗi ký tự, dòng số liệu đủ bốn mục cần khoảng 216px.
+          const minW = Math.min(300, 24 + Math.max(sub.length * 6.4, hasStats ? 216 : 0));
+          panels.set(id, { panel: portPanel(shown, spec), head: 34 + 17 * lines, minW });
+        }
+      }
+      this._portsByNode = portsByNode;
+
+      const trees = buildTree(this._topo, this._expanded, leaves, panels, { wires: cfg.wires });
       const width = this._width || 0;
       const lay = width
         ? fitLayout(trees, width, {
@@ -1392,15 +1962,21 @@ async function defineCard() {
                 ${cfg.title ? html`<div class="title">${cfg.title}</div>` : ""}
                 ${cfg.subtitle ? html`<div class="sub">${cfg.subtitle}</div>` : ""}
                 ${cfg.view_switch === false ? "" : this._renderViewSwitch(T)}
+                ${cfg.view_switch === false ? "" : this._renderDetailSwitch(T)}
               </div>`
             : ""}
-          <div class="viewport ${lay?.mode || ""}" style="height:${height}px">
+          <div class="viewport ${lay?.mode || ""} ${lay?.wired ? "wired" : ""}" style="height:${height}px">
             ${lay
-              ? html`<div class="stage" style="width:${lay.width}px;height:${lay.height}px;transform:translate(${lay.offsetX}px,0) scale(${lay.scale})">
+              ? html`<div
+                  class="stage"
+                  style="width:${lay.width}px;height:${lay.height}px;transform:translate(${lay.offsetX}px,0) scale(${lay.scale})"
+                  @mouseover=${this._onHover}
+                  @mouseleave=${() => this._focusWire(null)}
+                >
                   ${(lay.frames || []).map((f) => html`<div class="frame" style="left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px"></div>`)}
                   <svg class="edges" width=${lay.width} height=${lay.height} viewBox="0 0 ${lay.width} ${lay.height}"></svg>
                   ${lay.boxes.map((b) => (b.kind === "node" ? this._renderNode(b, lay, portsByNode, traffic, T, locale) : this._renderPort(b, lay, T, locale)))}
-                  ${INLINE_TRAFFIC.has(lay.mode) ? "" : lay.links.filter((l) => l.kind === "node").map((l) => this._renderEdgeLabel(l, traffic, locale))}
+                  ${INLINE_TRAFFIC.has(lay.mode) ? "" : lay.links.filter((l) => l.kind === "node").map((l) => this._renderEdgeLabel(l, traffic, locale, T))}
                 </div>`
               : ""}
           </div>
@@ -1425,22 +2001,130 @@ async function defineCard() {
       }
       const count = Number(node.count) > 1 ? Number(node.count) : 0;
       const info = this._infoText(node.info);
+      const rich = b.face?.label ? this._cardInfo.get(b.id) : null;
+      const uplink = rich ? this._uplinkText(b.id, traffic, T) : "";
+      const brand = rich && (node.brand ?? rich.device?.manufacturer);
+      const sub = rich ? rich.sub : info;
+      if (rich) status[0] = `${status[0]} · ${T.behind(portsBehind(this._topo, portsByNode, b.id))}`;
+      // Không có cổng nào lên nhưng cảm biến hệ thống vẫn báo số thì thiết bị vẫn sống.
+      const alive = (e) => Number.isFinite(parseFloat(this.hass.states[e]?.state));
+      const online = rich && (ports.some((p) => p.linked) || Object.values(rich.stats).some(alive));
       const onClick = () => (expandable ? this._toggle(node) : this._moreInfo(node.entity));
       return html`<div
-        class="node ${node.type} ${expandable || node.entity ? "clickable" : ""} ${expanded ? "expanded" : ""} ${count ? "stack" : ""} ${err ? "warn" : ""}"
+        class="node ${node.type} ${expandable || node.entity ? "clickable" : ""} ${expanded ? "expanded" : ""} ${count ? "stack" : ""} ${err ? "warn" : ""} ${b.face ? "faced" : ""}"
         style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;--c:${node.color}"
         title=${expandable ? T.tap_open : ""}
         @click=${onClick}
       >
         <div class="row1">
-          <ha-icon .icon=${node.icon}></ha-icon>
+          ${brand ? html`<span class="brand">${brand}</span>` : html`<ha-icon .icon=${node.icon}></ha-icon>`}
           <span class="name">${node.name}</span>
           ${count ? html`<span class="badge">×${count}</span>` : ""}
+          ${rich ? html`<span class="dot ${online ? "ok" : "bad"}"></span>` : ""}
           ${expandable ? html`<ha-icon class="chev" .icon=${expanded ? "mdi:chevron-left" : "mdi:chevron-right"}></ha-icon>` : ""}
         </div>
-        ${info ? html`<div class="line">${info}</div>` : ""}
+        ${sub ? html`<div class="line">${sub}</div>` : ""}
+        ${uplink ? html`<div class="line up">${uplink}</div>` : ""}
+        ${rich ? this._renderStats(rich.stats, T) : ""}
         ${status.length ? html`<div class="line st">${status.join(" · ")}</div>` : ""}
+        ${b.face ? this._renderFace(b, node, lay, T, locale) : ""}
       </div>`;
+    }
+
+    /** Dò cảm biến phải duyệt toàn bộ registry nên chỉ dò lại khi registry hoặc cấu hình đổi. */
+    _statsOf(id, node, device) {
+      if (this._statsFor !== this.hass.entities || this._statsConfig !== this._config) {
+        this._statsFor = this.hass.entities;
+        this._statsConfig = this._config;
+        this._statsCache = new Map();
+      }
+      if (!this._statsCache.has(id)) this._statsCache.set(id, deviceStats(node, device, this.hass.entities, this.hass.states));
+      return this._statsCache.get(id);
+    }
+
+    /** Dòng phụ của thẻ: model · IP · info (bỏ IP nếu info đã có). */
+    _cardSub(node, device) {
+      const info = this._infoText(node.info);
+      const ip = deviceIp(device);
+      return [device?.model, ip && !info.includes(ip) ? ip : null, info].filter(Boolean).join(" · ");
+    }
+
+    /** Dòng CPU · RAM · thời gian chạy · nhiệt độ. Cảm biến lỗi thì bỏ mục đó. */
+    _renderStats(stats, T) {
+      const val = (id) => {
+        const st = id ? this.hass.states[id] : undefined;
+        const n = st ? parseFloat(st.state) : NaN;
+        return Number.isFinite(n) ? Math.round(n) : null;
+      };
+      const items = [];
+      const cpu = val(stats.cpu);
+      const ram = val(stats.ram);
+      const temp = val(stats.temp);
+      const up = stats.uptime ? uptimeParts(this.hass.states[stats.uptime]?.state) : null;
+      if (cpu !== null) items.push(html`<span>CPU <b>${cpu}%</b></span>`);
+      if (ram !== null) items.push(html`<span>RAM <b>${ram}%</b></span>`);
+      if (up) items.push(html`<span><b>${up.days !== undefined ? T.days(up.days) : T.hours(up.hours)}</b></span>`);
+      if (temp !== null) items.push(html`<span>${temp} °C</span>`);
+      return items.length ? html`<div class="line stats">${items}</div>` : "";
+    }
+
+    /** Cạnh nối node lên cha có khai báo cổng của chính node. */
+    _uplinkEdge(id) {
+      return this._topo.edges.find((e) => e.to === id && e.toPorts.length);
+    }
+
+    _uplinkText(id, traffic, T) {
+      const e = this._uplinkEdge(id);
+      if (!e) return "";
+      const parent = this._topo.nodes.get(e.from);
+      const mine = e.toPorts.length > 1 ? T.n_ports(e.toPorts.length) : portLabel(e.toPorts[0]);
+      const theirs = e.fromPorts.length === 1 ? ` ${portLabel(e.fromPorts[0])}` : "";
+      const speed = speedLabel(traffic.get(e.key)?.speedMbps);
+      return `↑ ${mine} → ${parent.name}${theirs}${speed ? ` · ${speed}` : ""}`;
+    }
+
+    /** Dải cổng ở đáy thẻ. Bấm ô mở more-info của cổng, không đóng/mở node. */
+    _renderFace(b, node, lay, T, locale) {
+      const f = b.face;
+      const linkPorts = linkPortsOf(this._topo, b.id);
+      const uplinks = new Set(this._topo.edges.filter((e) => e.to === b.id).flatMap((e) => e.toPorts));
+      return html`<div class="pface ${f.label ? "" : "led"}" style="left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px">
+        ${f.cells.map((c) => {
+          const p = c.port;
+          const meta = node.portNames[p.name] || {};
+          const state = portState(p, { meta, uplink: uplinks.has(p.name), linkPort: linkPorts.has(p.name), expect: node.expect_speed });
+          const hot = heatLevel((p.txBps ?? 0) + (p.rxBps ?? 0), this._heatOpts) === 2 ? "hot" : "";
+          return html`<div
+            class="pt ${state} ${hot}"
+            style="left:${c.x}px;top:${c.y}px;width:${c.w}px;height:${c.h}px;--c:${speedColor(p.speedMbps, true)}"
+            title=${portTip(node.name, p, meta, T, locale, node.expect_speed)}
+            data-w=${lay.wireOf?.get(`${b.id}/${p.name}`) ?? ""}
+            @click=${(e) => {
+              e.stopPropagation();
+              this._moreInfo(p.entity);
+            }}
+          >
+            ${f.label ? portLabel(p.name) : ""}
+          </div>`;
+        })}
+      </div>`;
+    }
+
+    /** Rê chuột lên ô cổng hoặc dây: sáng cả đường và ô ở đầu kia, phần còn lại mờ đi. */
+    _onHover(e) {
+      const hit = e.composedPath().find((n) => n.dataset?.w);
+      this._focusWire(hit?.dataset.w || null);
+    }
+
+    _focusWire(key) {
+      if (key === this._litWire) return;
+      this._litWire = key;
+      const stage = this.renderRoot.querySelector(".stage");
+      if (!stage) return;
+      for (const el of stage.querySelectorAll("[data-lit]")) el.removeAttribute("data-lit");
+      stage.toggleAttribute("data-focus", !!key);
+      if (!key) return;
+      for (const el of stage.querySelectorAll("[data-w]")) if (el.dataset.w === key) el.setAttribute("data-lit", "");
     }
 
     _renderPort(b, lay, T, locale) {
@@ -1459,6 +2143,7 @@ async function defineCard() {
       return html`<div
         class="port ${p.linked ? "" : "down"} ${p.entity ? "clickable" : ""} heat${heat}"
         style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;--c:${color};--u:${usagePct(total).toFixed(1)}%"
+        data-w=${lay.wireOf?.get(`${b.nodeId}/${p.name}`) ?? ""}
         @click=${() => this._moreInfo(p.entity)}
       >
         <div class="pmain">
@@ -1512,39 +2197,75 @@ async function defineCard() {
       this.requestUpdate();
     }
 
+    _detailKey(config = this._config) {
+      return `lan-topo-card:detail:${config.title || "default"}`;
+    }
+
+    _detailMode() {
+      return detailMode(this._config, this._detail);
+    }
+
+    _setDetail(mode) {
+      this._detail = mode;
+      try {
+        localStorage.setItem(this._detailKey(), mode);
+      } catch (_e) {
+        /* chế độ riêng tư / chặn lưu trữ: chỉ nhớ trong phiên */
+      }
+      this.requestUpdate();
+    }
+
+    _switchBtn(on, icon, label, pick) {
+      return html`<button type="button" class="vbtn ${on ? "on" : ""}" title=${label} aria-label=${label} aria-pressed=${on ? "true" : "false"} @click=${pick}>
+        <ha-icon .icon=${icon}></ha-icon><span>${label}</span>
+      </button>`;
+    }
+
     _renderViewSwitch(T) {
       const cur = this._view || "auto";
-      const btn = (mode, icon, label) =>
-        html`<button type="button" class="vbtn ${cur === mode ? "on" : ""}" title=${label} aria-label=${label} aria-pressed=${cur === mode ? "true" : "false"} @click=${() => this._setView(mode)}>
-          <ha-icon .icon=${icon}></ha-icon><span>${label}</span>
-        </button>`;
       return html`<div class="vswitch">
-        ${VIEWS.map(([mode, icon]) => btn(mode, icon, T[`view_${mode}`]))}
+        ${VIEWS.map(([mode, icon]) => this._switchBtn(cur === mode, icon, T[`view_${mode}`], () => this._setView(mode)))}
       </div>`;
     }
 
-    _renderEdgeLabel(l, traffic, locale) {
-      if (l.edge?.label === false) return "";
+    _renderDetailSwitch(T) {
+      if (![...this._topo.nodes.values()].some((n) => n.ports)) return "";
+      const cur = this._detailMode();
+      return html`<div class="vswitch detail">
+        ${this._switchBtn(cur === "simple", "mdi:card-outline", T.detail_simple, () => this._setDetail("simple"))}
+        ${this._switchBtn(cur === "full", "mdi:ethernet", T.detail_full, () => this._setDetail("full"))}
+      </div>`;
+    }
+
+    _renderEdgeLabel(l, traffic, locale, T) {
+      if (l.edge?.label === false || (l.wire && !l.wire.label)) return "";
       const t = traffic.get(l.edge.key);
-      if (!t || (t.down === null && t.up === null)) return "";
+      const hasRate = t && (t.down !== null || t.up !== null);
+      const plug = l.wire ? this._plugText(l.wire, t, T) : "";
+      if (!hasRate && !plug) return "";
+      const body = html`${plug ? html`<span class="pp">${plug}</span>` : ""}${hasRate
+        ? html`<span class="d">↓ ${formatRate(t.down, locale)}</span><span class="u">↑ ${formatRate(t.up, locale)}</span>`
+        : ""}`;
       if (l.lx !== undefined) {
         // Bố cục tự chọn chỗ đặt nhãn (vòng: giữa đường cong; cây dọc: cạnh đoạn thả xuống).
-        return html`<div class="elabel ${l.lcls || "c"}" style="left:${l.lx}px;top:${l.ly}px">
-          <span class="d">↓ ${formatRate(t.down, locale)}</span><span class="u">↑ ${formatRate(t.up, locale)}</span>
-        </div>`;
+        return html`<div class="elabel ${l.lcls || "c"}" style="left:${l.lx}px;top:${l.ly}px">${body}</div>`;
       }
       if (l.dir === "v") {
         // Đoạn đứng của chuỗi xếp chồng: nhãn đặt bên phải đường, giữa đoạn.
-        return html`<div class="elabel v" style="left:${l.x1 + 9}px;top:${(l.y1 + l.y2) / 2}px">
-          <span class="d">↓ ${formatRate(t.down, locale)}</span><span class="u">↑ ${formatRate(t.up, locale)}</span>
-        </div>`;
+        return html`<div class="elabel v" style="left:${l.x1 + 9}px;top:${(l.y1 + l.y2) / 2}px">${body}</div>`;
       }
       // Sát node con, nơi đường cong đã nằm ngang — giữa đường thì đè lên chùm đường của cột cổng.
       const x = l.x2 - Math.min(52, (l.x2 - l.x1) / 2);
       const y = l.y2 - 5;
-      return html`<div class="elabel" style="left:${x}px;top:${y}px">
-        <span class="d">↓ ${formatRate(t.down, locale)}</span><span class="u">↑ ${formatRate(t.up, locale)}</span>
-      </div>`;
+      return html`<div class="elabel" style="left:${x}px;top:${y}px">${body}</div>`;
+    }
+
+    /** "S2 ⇄ S1 · 10G"; cạnh nhiều dây: "5 cổng · 1G". */
+    _plugText(wire, t, T) {
+      const name = (n) => (n === null ? "" : portLabel(n));
+      const ends = wire.count > 1 ? T.n_ports(wire.count) : [name(wire.from), name(wire.to)].filter(Boolean).join(" ⇄ ");
+      const speed = speedLabel(t?.speedMbps);
+      return speed ? `${ends} · ${speed}` : ends;
     }
 
     _renderLegend(T) {
@@ -1552,6 +2273,12 @@ async function defineCard() {
       return html`<div class="legend">
         ${SPEED_TIERS.map((t) => html`<span><i style="--c:${t.color}"></i>${t[lang]}</span>`)}
         <span><i style="--c:${NO_LINK_COLOR}"></i>${T.no_link}</span>
+        ${this._lay?.boxes.some((b) => b.face)
+          ? html`<span><i class="off"></i>${T.empty}</span>
+              <span><i class="fault"></i>${T.fault}</span>
+              <span><i class="dis"></i>${T.disabled}</span>
+              <span><i class="slow"></i>${T.slow}</span>`
+          : ""}
         <span class="sep">${T.down_dev}</span><span class="up">${T.up_dev}</span>
         <span><ha-icon icon="mdi:flash"></ha-icon>${T.poe}</span>
       </div>`;
@@ -1583,11 +2310,13 @@ async function defineCard() {
         let w;
         let hot = "";
         if (l.kind === "node") {
-          const t = this._traffic.get(l.edge.key) || {};
+          const whole = this._traffic.get(l.edge.key) || {};
+          const t = l.wire ? wireTraffic(l.edge, l.wire, l.wire.count, this._portsByNode, whole) : whole;
           down = t.down;
           up = t.up;
           color = speedColor(t.speedMbps, t.linked !== false);
           w = t.speedMbps >= 10000 ? 3.6 : t.speedMbps >= 1000 ? 2.8 : 2.2;
+          if (l.wire) w -= 0.8;
           if (t.speedMbps) {
             const util = Math.max(down || 0, up || 0) / (t.speedMbps * 1e6);
             hot = util >= 0.7 ? "hot" : util >= 0.4 ? "warm" : "";
@@ -1599,7 +2328,8 @@ async function defineCard() {
           w = 1.6;
         }
         // Ống mờ = dung lượng link; 2 sợi ↓/↑ dày theo lưu lượng thật (log), tách 2 bên ống.
-        const cap = l.kind === "node" ? 5.6 : 4;
+        // Dây vào cổng mảnh hơn: phải lọt khe 2 px giữa các ô.
+        const cap = l.wire ? 1.6 : l.kind === "node" ? 5.6 : 4;
         const wd = flowWidth(down, { max: cap });
         const wu = flowWidth(up, { max: cap });
         const base = Math.max(w, wd + wu + 1);
@@ -1617,9 +2347,15 @@ async function defineCard() {
               : upright
               ? `translate(${sign * off} 0)`
               : `translate(0 ${sign * off})`;
-        want.set(`${l.key}|b`, { d, cls: `base ${hot}`, style: `--c:${color};--w:${r1(base)}px` });
-        want.set(`${l.key}|d`, { d, cls: `flow down lv${flowLevel(down, this._idleBps)}`, style: `--c:${color};--fw:${r1(wd)}px`, tr: tr(-1) });
-        want.set(`${l.key}|u`, { d, cls: `flow up lv${flowLevel(up, this._idleBps)}`, style: `--c:${color};--fw:${r1(wu)}px`, tr: tr(1) });
+        const wk = l.wire ? l.key : undefined;
+        want.set(`${l.key}|b`, { d, cls: `base ${l.wire ? "wire" : ""} ${hot}`, style: `--c:${color};--w:${r1(base)}px`, wk });
+        want.set(`${l.key}|d`, { d, cls: `flow down lv${flowLevel(down, this._idleBps)}`, style: `--c:${color};--fw:${r1(wd)}px`, tr: tr(-1), wk });
+        want.set(`${l.key}|u`, { d, cls: `flow up lv${flowLevel(up, this._idleBps)}`, style: `--c:${color};--fw:${r1(wu)}px`, tr: tr(1), wk });
+        if (l.wire) {
+          want.set(`${l.key}|p`, { d: l.plugs.map(([x, y]) => `M${r1(x)} ${r1(y)}h0`).join(""), cls: "plug", style: `--c:${color}`, wk });
+          // Vùng rê chuột chỉ ở đoạn ngoài thẻ, không che các ô cổng.
+          if (l.pts.length > 3) want.set(`${l.key}|h`, { d: linkPath({ pts: l.pts.slice(1, -1) }), cls: "hit", style: "", wk });
+        }
       }
       const existing = new Map();
       for (const el of [...svg.children]) {
@@ -1631,6 +2367,7 @@ async function defineCard() {
         if (!el) {
           el = document.createElementNS(SVG_NS, "path");
           el.dataset.k = k;
+          if (a.wk) el.dataset.w = a.wk;
           svg.appendChild(el);
         }
         if (el.getAttribute("d") !== a.d) el.setAttribute("d", a.d);
@@ -1680,6 +2417,39 @@ async function defineCard() {
           left: 0;
           overflow: visible;
           pointer-events: none;
+        }
+        .viewport.wired svg.edges {
+          z-index: 2;
+        }
+        .viewport.wired .elabel {
+          z-index: 3;
+        }
+        path.wire {
+          stroke-opacity: 0.55;
+        }
+        path.plug {
+          stroke: #fff;
+          stroke-width: 4.5px;
+        }
+        path.hit {
+          stroke: transparent;
+          stroke-width: 9px;
+          pointer-events: stroke;
+        }
+        .stage[data-focus] svg.edges path:not([data-lit]) {
+          opacity: 0.12;
+        }
+        .stage[data-focus] path.wire[data-lit] {
+          stroke-opacity: 1;
+        }
+        .stage[data-focus] .pt:not([data-lit]),
+        .stage[data-focus] .port:not([data-lit]) {
+          filter: saturate(0.3) brightness(0.65);
+        }
+        .stage[data-focus] .pt[data-lit] {
+          outline: 2px solid #fff;
+          outline-offset: 1px;
+          z-index: 1;
         }
         path {
           fill: none;
@@ -1780,6 +2550,85 @@ async function defineCard() {
         }
         .node.warn .st {
           color: #fbbf24;
+        }
+        .node.faced {
+          justify-content: flex-start;
+        }
+        .node.faced .row1 {
+          line-height: 22px;
+        }
+        .node.faced .line {
+          line-height: 15px;
+        }
+        .line.up {
+          color: #a5f3fc;
+        }
+        .line.stats {
+          display: flex;
+          gap: 10px;
+        }
+        .line.stats b {
+          color: var(--ltc-fg);
+        }
+        .brand {
+          flex: none;
+          padding: 0 5px;
+          border-radius: 4px;
+          background: var(--c);
+          color: #06101f;
+          font-size: 0.66rem;
+          font-weight: 700;
+          line-height: 16px;
+        }
+        .dot {
+          flex: none;
+          width: 8px;
+          height: 8px;
+          margin-left: auto;
+          border-radius: 50%;
+          background: #ef4444;
+        }
+        .dot.ok {
+          background: #22c55e;
+          box-shadow: 0 0 6px #22c55e;
+        }
+        .dot + .chev {
+          margin-left: 2px;
+        }
+        .pface {
+          position: absolute;
+        }
+        .pface .pt {
+          position: absolute;
+          min-width: 0;
+          padding: 0;
+          border-radius: 3px;
+          font-size: 9px;
+          line-height: 1;
+        }
+        .pface.led .pt {
+          border-radius: 1.5px;
+          pointer-events: none;
+        }
+        .pface:not(.led) .pt.uplink::before {
+          content: "";
+          position: absolute;
+          top: -2px;
+          left: 50%;
+          margin-left: -3px;
+          border: 3px solid transparent;
+          border-top: 0;
+          border-bottom: 4px solid #fff;
+        }
+        .pface:not(.led) .pt.poe::after {
+          content: "⚡";
+          position: absolute;
+          right: -3px;
+          top: -6px;
+          font-size: 8px;
+        }
+        .vswitch.detail {
+          margin-left: 0;
         }
         .clickable {
           cursor: pointer;
@@ -2091,6 +2940,14 @@ async function defineCard() {
         .elabel.c {
           transform: translate(-50%, -50%);
         }
+        .elabel.w {
+          transform: translate(-100%, -50%);
+          align-items: flex-end;
+        }
+        .elabel .pp {
+          color: var(--ltc-fg);
+          font-weight: 600;
+        }
         .frame {
           position: absolute;
           box-sizing: border-box;
@@ -2219,7 +3076,8 @@ async function defineCard() {
           ? ""
           : html`<div class="legend">
               ${SPEED_TIERS.map((t) => html`<span><i style="--c:${t.color}"></i>${t[lang]}</span>`)}
-              <span><i class="off" style="--c:${NO_LINK_COLOR}"></i>${T.no_link}</span>
+              <span><i class="off"></i>${T.empty}</span>
+              <span><i class="fault"></i>${T.fault}</span>
               <span><i class="dis"></i>${T.disabled}</span>
               <span class="hint">${T.traffic}</span>
               <span><ha-icon icon="mdi:flash"></ha-icon>${T.poe}</span>
@@ -2232,16 +3090,8 @@ async function defineCard() {
       if (meta.hide) return "";
       const color = speedColor(p.speedMbps, p.linked !== false);
       const busy = (p.rxBps ?? 0) > idle || (p.txBps ?? 0) > idle;
-      const who = meta.name || p.device || p.comment;
-      const tip = [
-        `${dev.name} · ${p.name}${who ? ` — ${who}` : ""}`,
-        meta.ip || p.deviceIp,
-        p.disabled ? T.disabled : p.linked ? speedLabel(p.speedMbps) || "" : T.no_link,
-        p.linked ? `↓${formatRate(p.txBps, locale)} ↑${formatRate(p.rxBps, locale)}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-      const cls = p.disabled ? "dis" : p.linked ? (busy ? "on busy" : "on") : "off";
+      const tip = portTip(dev.name, p, meta, T, locale, dev.expect_speed);
+      const cls = `${portState(p, { meta, expect: dev.expect_speed })} ${busy ? "busy" : ""}`;
       return html`<div class="pt ${cls}" style="--c:${color}" title=${tip} @click=${() => this._moreInfo(p.entity)}>
         ${portLabel(p.name)}${poeOn(p, meta) ? html`<ha-icon icon="mdi:flash"></ha-icon>` : ""}
       </div>`;
@@ -2283,46 +3133,6 @@ async function defineCard() {
           flex-wrap: wrap;
           gap: 5px;
         }
-        .pt {
-          position: relative;
-          box-sizing: border-box;
-          min-width: 30px;
-          height: 26px;
-          padding: 0 5px;
-          border-radius: 7px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 1px;
-          font-size: 0.72rem;
-          font-weight: 700;
-          font-variant-numeric: tabular-nums;
-          cursor: pointer;
-          user-select: none;
-          -webkit-tap-highlight-color: transparent;
-          transition: box-shadow 0.2s, filter 0.2s;
-        }
-        .pt.on {
-          background: color-mix(in srgb, var(--c) 78%, #0a1122);
-          color: #06101f;
-          box-shadow: 0 0 6px color-mix(in srgb, var(--c) 45%, transparent);
-        }
-        .pt.on.busy {
-          box-shadow: 0 0 0 1px #fff8, 0 0 11px var(--c);
-        }
-        .pt.off {
-          background: rgba(239, 68, 68, 0.08);
-          border: 1px solid rgba(239, 68, 68, 0.55);
-          color: #fca5a5;
-        }
-        .pt.dis {
-          background: rgba(148, 163, 184, 0.06);
-          border: 1px dashed rgba(148, 163, 184, 0.45);
-          color: #64748b;
-        }
-        .pt:hover {
-          filter: brightness(1.2);
-        }
         .pt ha-icon {
           --mdc-icon-size: 11px;
           color: #fde047;
@@ -2338,18 +3148,6 @@ async function defineCard() {
           padding: 4px 16px 10px;
           font-size: 0.72rem;
           color: var(--ltc-dim);
-        }
-        .legend i.off {
-          background: transparent;
-          border: 1px solid var(--c);
-          box-shadow: none;
-          box-sizing: border-box;
-        }
-        .legend i.dis {
-          background: transparent;
-          border: 1px dashed #94a3b8;
-          box-shadow: none;
-          box-sizing: border-box;
         }
         .legend ha-icon {
           --mdc-icon-size: 13px;
