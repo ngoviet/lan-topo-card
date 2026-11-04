@@ -17,6 +17,12 @@ import {
   planWires,
   portState,
   wireTraffic,
+  deviceOfNode,
+  faceBox,
+  deviceIp,
+  deviceStats,
+  uptimeParts,
+  portsBehind,
   FACE_METRICS,
   LAYOUT,
 } from "../dist/lan-topo-card.js";
@@ -332,4 +338,136 @@ test("wireTraffic: một dây dùng số cả cạnh; nhiều dây tách theo c�
   const q = wireTraffic({ ...edge, from: "ccr", to: "m" }, { from: "ether1", to: null }, 2, byNode, whole);
   assert.deepEqual([q.down, q.up], [2, 5]);
   assert.equal(wireTraffic(edge, { from: null, to: "ether9" }, 5, byNode, whole), whole);
+});
+
+// Router 8 cổng, 3 thiết bị cuối ở ether2, ether5, ether8 + 1 switch con.
+const leafTree = () => {
+  const topo = normalizeConfig({
+    nodes: [{ id: "r", ports: [] }, { id: "s", ports: [] }],
+    edges: [{ from: "r", to: "s", from_port: "sfp-sfpplus1", to_port: "sfp-sfpplus1" }],
+  });
+  const ports = [...ethers(8), port("sfp-sfpplus1")];
+  const panels = new Map([["r", panelOf(ports)], ["s", panelOf([...ethers(8), port("sfp-sfpplus1")])]]);
+  const leaves = new Map([["r", [port("ether2"), port("ether5"), port("ether8")]]]);
+  return { topo, panels, leaves, trees: buildTree(topo, new Set(["r"]), leaves, panels) };
+};
+const cross = (a, b) => {
+  const seg = (P) => P.slice(1).map((pt, i) => [P[i], pt]);
+  for (const [p, q] of seg(a))
+    for (const [r, s] of seg(b)) {
+      const [h, v] = p[1] === q[1] ? [[p, q], [r, s]] : [[r, s], [p, q]];
+      if (h[0][1] !== h[1][1] || v[0][0] !== v[1][0]) continue;
+      const x = v[0][0];
+      const y = h[0][1];
+      if (Math.min(h[0][0], h[1][0]) < x && x < Math.max(h[0][0], h[1][0]) && Math.min(v[0][1], v[1][1]) < y && y < Math.max(v[0][1], v[1][1])) return true;
+    }
+  return false;
+};
+
+for (const [name, run] of [
+  ["ngang", (t) => routeWires(layoutHorizontal(t, LAYOUT, { chain: "stack" }))],
+  ["cây dọc", (t) => routeWires(layoutDown(t))],
+]) {
+  test(`Dây thiết bị cuối (${name}): ra từ đúng ô, tới đúng lá, không cắt nhau`, () => {
+    const lay = run(leafTree().trees);
+    const leaves = lay.links.filter((l) => l.kind === "port");
+    assert.equal(leaves.length, 3);
+    const r = lay.boxes.find((b) => b.id === "r");
+    for (const l of leaves) {
+      assert.ok(l.wire?.leaf);
+      const box = lay.boxes.find((b) => b.key === l.key);
+      const cell = r.face.cells.find((c) => c.port.name === l.port.name);
+      const [px, py] = l.plugs[0];
+      const left = r.x + LAYOUT.nodeBorder + r.face.x + cell.x;
+      assert.ok(px >= left - 1 && px <= left + cell.w, `${l.key}: chấm cắm không ở ô ${cell.port.name}`);
+      assert.ok(py <= r.y + r.h);
+      assert.deepEqual(l.pts[l.pts.length - 1], [box.x, box.y + box.h / 2]);
+      assert.equal(lay.wireOf.get(`r/${l.port.name}`), l.key);
+    }
+    leaves.forEach((a, i) => leaves.slice(i + 1).forEach((b) => assert.ok(!cross(a.pts, b.pts), `${a.key} cắt ${b.key}`)));
+  });
+}
+
+test("Lá cổng: wires: node và mẫu đơn giản giữ đường nối cũ, giữ thứ tự cũ", () => {
+  const { topo, panels, leaves } = leafTree();
+  for (const t of [buildTree(topo, new Set(["r"]), leaves, panels, { wires: "node" }), buildTree(topo, new Set(["r"]), leaves)]) {
+    const lay = routeWires(layoutHorizontal(t, LAYOUT, { chain: "stack" }));
+    const list = lay.links.filter((l) => l.kind === "port");
+    assert.ok(list.every((l) => !l.wire && !l.pts));
+    assert.deepEqual(list.map((l) => l.port.name), ["ether2", "ether5", "ether8"]);
+  }
+});
+
+test("deviceOfNode: theo tên, không thấy thì suy từ entity của cổng", () => {
+  const devices = { a: { id: "a", name: "CCR2004" }, b: { id: "b", name: "GS108PEv3 192.168.10.3" } };
+  const entities = { "binary_sensor.gs_1": { device_id: "b" } };
+  assert.equal(deviceOfNode({ name: "CCR2004", ports: {} }, [], devices, entities).id, "a");
+  assert.equal(deviceOfNode({ name: "GS108PE", ports: { adapter: "netgear_plus" } }, [{ link: "binary_sensor.gs_1" }], devices, entities).id, "b");
+  assert.equal(deviceOfNode({ name: "Lạ", ports: {} }, [], devices, entities), undefined);
+});
+
+test("deviceIp: lấy IP từ configuration_url, tên miền thì không", () => {
+  assert.equal(deviceIp({ configuration_url: "http://192.168.10.3/" }), "192.168.10.3");
+  assert.equal(deviceIp({ configuration_url: "https://router.local" }), null);
+  assert.equal(deviceIp(undefined), null);
+});
+
+test("deviceStats: nhận theo tên entity, không theo entity id; YAML ghi đè; stats: false tắt", () => {
+  const device = { id: "a" };
+  const entities = Object.fromEntries(
+    ["sensor.mikrotik_cpu_load", "sensor.mikrotik_memory_usage", "sensor.mikrotik_uptime", "sensor.board", "sensor.cpu_t", "sensor.khac"].map((id) => [id, { entity_id: id, device_id: id === "sensor.khac" ? "z" : "a" }]),
+  );
+  const states = {
+    "sensor.mikrotik_cpu_load": { attributes: { friendly_name: "CCR2004 CPU load" } },
+    "sensor.mikrotik_memory_usage": { attributes: { friendly_name: "CCR2004 Memory usage" } },
+    "sensor.mikrotik_uptime": { attributes: { friendly_name: "CCR2004 Uptime" } },
+    "sensor.board": { attributes: { friendly_name: "CCR2004 Board temperature1" } },
+    "sensor.cpu_t": { attributes: { friendly_name: "CCR2004 CPU temperature" } },
+    "sensor.khac": { attributes: { friendly_name: "Khác CPU load" } },
+  };
+  assert.deepEqual(deviceStats({}, device, entities, states), {
+    cpu: "sensor.mikrotik_cpu_load",
+    ram: "sensor.mikrotik_memory_usage",
+    uptime: "sensor.mikrotik_uptime",
+    temp: "sensor.cpu_t",
+  });
+  assert.equal(deviceStats({ stats: { cpu: "sensor.tay" } }, device, entities, states).cpu, "sensor.tay");
+  assert.deepEqual(deviceStats({ stats: false }, device, entities, states), {});
+  assert.deepEqual(deviceStats({}, undefined, entities, states), {});
+});
+
+test("uptimeParts: mốc khởi động hoặc số giây; giá trị lạ → null", () => {
+  const now = Date.parse("2026-11-04T09:00:00Z");
+  assert.deepEqual(uptimeParts("2026-10-24T09:00:00+00:00", now), { days: 11 });
+  assert.deepEqual(uptimeParts("7200", now), { hours: 2 });
+  assert.deepEqual(uptimeParts("200000", now), { days: 2 });
+  assert.equal(uptimeParts("unavailable", now), null);
+  assert.equal(uptimeParts("", now), null);
+  assert.equal(uptimeParts("2030-01-01T00:00:00Z", now), null);
+});
+
+test("portsBehind: cộng cả nhánh, bỏ cổng nối node và cổng ẩn", () => {
+  const topo = normalizeConfig({
+    nodes: [{ id: "r", ports: [], port_names: { ether3: false } }, { id: "s", ports: [] }, { id: "t", ports: [] }],
+    edges: [
+      { from: "r", to: "s", from_port: "ether1", to_port: "ether1" },
+      { from: "s", to: "t", from_port: "ether2", to_port: "ether1" },
+    ],
+  });
+  const on = (n) => port(n, { linked: true });
+  const byNode = new Map([
+    ["r", [on("ether1"), on("ether2"), on("ether3"), port("ether4")]],
+    ["s", [on("ether1"), on("ether2"), on("ether3")]],
+    ["t", [on("ether1"), on("ether2"), on("ether3")]],
+  ]);
+  assert.equal(portsBehind(topo, byNode, "t"), 2);
+  assert.equal(portsBehind(topo, byNode, "s"), 3);
+  assert.equal(portsBehind(topo, byNode, "r"), 4);
+});
+
+test("faceBox: minW nới thẻ để không cắt chữ, nhưng không vượt khung cố định, và bỏ qua ở dải chấm", () => {
+  const it = { ...panelOf([port("ether1")]), minW: 250 };
+  assert.equal(faceBox(it, 180, 74).w, 250);
+  assert.equal(faceBox(it, 200, 74, FACE_METRICS.touch, 74, 200).w, 200);
+  assert.equal(faceBox(it, 170, 60, FACE_METRICS.led, 60, 170).w, 170);
 });

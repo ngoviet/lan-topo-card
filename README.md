@@ -143,6 +143,8 @@ edges:
 | `ports` | Port adapter, see below. Nodes with ports can be opened |
 | `port_names` | Per-port label: `"name \| ip"`, `{ name, ip, icon, show, poe, optional }` (`poe: false` hides ⚡; `optional: true`: a device that is often off, losing link is not a fault) or `false` to hide. Without a name the card uses the `device` / `device_ip` attributes of the link entity (routeros_ha: LLDP neighbor or DHCP lease comment), then the port comment |
 | `show_all_ports` | Per-node version of the card option |
+| `brand` | Vendor badge on the card (defaults to the device registry) |
+| `stats` | CPU, RAM, uptime and temperature line on full-detail cards. Detected from the device's entity names; override with `{ cpu, ram, uptime, temp }`, `false` to disable |
 | `model` | Model used to pick the port arrangement; takes priority over the device registry. With neither, the adapter's `prefix` is tried |
 | `faceplate` | `auto` (default), `false` (no port strip on this card) or `{ rows, top, block, sfp }`: rows, `top: even` = even ports on the top row, columns per group, SFP side (`left`/`right`) |
 | `expect_speed` | Expected speed (Mbps or `1G`): linked ports slower than this get an amber outline. Override per port with `port_names: { ether5: { expect_speed: 100 } }`, `false` to skip |
@@ -180,7 +182,7 @@ ports:
 
 *Down* always means away from the Internet. Ports named in `from_port`/`to_port` are hidden from the device column.
 
-Full detail draws one wire per port listed in `from_port`/`to_port`. An edge with several ports becomes several wires, each with its own port's traffic; an end with no port goes to the edge of the card. Hover a port cell or a wire to highlight the whole path, click a cell for port details. Hub and Arc views show the strip as small status dots (no hover or click); Cards and List use larger cells for touch.
+Full detail draws one wire per port listed in `from_port`/`to_port`. An edge with several ports becomes several wires, each with its own port's traffic; an end with no port goes to the edge of the card. When a node is expanded, the wire to each end device also starts at its exact port cell, and devices are ordered by cell position so wires do not cross. Hover a port cell or a wire to highlight the whole path, click a cell for port details. Hub and Arc views show the strip as small status dots (no hover or click); Cards and List use larger cells for touch.
 
 ## LAN Ports Card
 

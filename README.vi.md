@@ -141,6 +141,8 @@ edges:
 | `ports` | Adapter cổng, xem bên dưới. Node có cổng thì bấm để mở được |
 | `port_names` | Tên từng cổng: `"tên \| ip"`, `{ name, ip, icon, show, poe, optional }` (`poe: false` ẩn ⚡; `optional: true`: máy hay tắt, mất link không báo lỗi), hoặc `false` để ẩn. Không ghi tên thì card dùng thuộc tính `device` / `device_ip` của entity link (routeros_ha: LLDP neighbor hoặc comment DHCP lease), rồi tới comment của cổng |
 | `show_all_ports` | Như tuỳ chọn của card nhưng chỉ cho node này |
+| `brand` | Nhãn hãng trên thẻ (mặc định lấy từ device registry) |
+| `stats` | Dòng CPU, RAM, thời gian chạy, nhiệt độ trên thẻ mẫu đầy đủ. Tự nhận theo tên entity của device; ghi đè bằng `{ cpu, ram, uptime, temp }`, `false` để tắt |
 | `model` | Model để chọn cách xếp cổng, ưu tiên hơn device registry. Không có cả hai thì thử `prefix` của adapter |
 | `faceplate` | `auto` (mặc định), `false` (thẻ này không có dải cổng) hoặc `{ rows, top, block, sfp }`: số hàng, `top: even` = cổng chẵn ở hàng trên, số cột mỗi cụm, phía đặt SFP (`left`/`right`) |
 | `expect_speed` | Tốc độ kỳ vọng (Mbps hoặc `1G`): cổng có link mà chậm hơn được viền vàng. Ghi đè từng cổng bằng `port_names: { ether5: { expect_speed: 100 } }`, `false` để bỏ |
@@ -178,7 +180,7 @@ cố định (`1G`, `100M`, `2500`).
 
 *Xuống* luôn là chiều đi ra xa Internet. Cổng ghi ở `from_port`/`to_port` được ẩn khỏi cột thiết bị.
 
-Mẫu đầy đủ vẽ mỗi cổng ở `from_port`/`to_port` một dây. Cạnh có nhiều cổng được tách thành nhiều dây, mỗi dây theo lưu lượng cổng của nó; đầu không khai cổng thì dây vào cạnh thẻ. Rê chuột lên ô cổng hoặc dây để làm sáng cả đường, bấm ô để mở chi tiết cổng. Kiểu Tâm – viền và Vòng cung hiện dải thành các chấm trạng thái nhỏ (không rê chuột, không bấm được); Thẻ và Danh sách dùng ô to để chạm.
+Mẫu đầy đủ vẽ mỗi cổng ở `from_port`/`to_port` một dây. Cạnh có nhiều cổng được tách thành nhiều dây, mỗi dây theo lưu lượng cổng của nó; đầu không khai cổng thì dây vào cạnh thẻ. Khi mở node, dây tới từng thiết bị cuối cũng ra từ đúng ô cổng, và danh sách thiết bị xếp theo vị trí ô để dây không cắt nhau. Rê chuột lên ô cổng hoặc dây để làm sáng cả đường, bấm ô để mở chi tiết cổng. Kiểu Tâm – viền và Vòng cung hiện dải thành các chấm trạng thái nhỏ (không rê chuột, không bấm được); Thẻ và Danh sách dùng ô to để chạm.
 
 ## LAN Ports Card
 
