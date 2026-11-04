@@ -114,12 +114,17 @@ edges:
 | `expand` | `single` | `single`: opening a switch closes the others; `multi`: keep several open |
 | `layout` | `auto` | `auto`, `horizontal`, `down`, `radial`, `arc`, `cards`, `vertical` (default for the view switch) |
 | `chain` | `stack` | `stack`: the leading chain of single-child nodes (e.g. Internet → modem → router) is stacked in one column, saving width; `row`: one column per node |
+| `detail` | `full` | `full`: router/switch cards show a strip of port cells with wires plugged straight into them; `simple`: compact cards with card-to-card links, as in earlier versions. Switch instantly from the header buttons (remembered per browser) |
+| `wires` | `port` | In full detail: `port` plugs wires into the exact port cell (tree and top-down views; other views keep card links); `node` keeps the port strip but links stop at the card |
 | `view_switch` | `true` | Buttons in the header to pick a view (only the active one shows its name; hover for the others); the choice is remembered per browser |
 | `breakpoint` | `600` | Below this card width (px), `auto` uses the vertical layout |
 | `min_scale` | `0.55` | `auto` switches to vertical when the tree would need to shrink below this |
 | `max_scale` | `1` | Never scale the tree up beyond this |
 | `idle_kbps` | `20` | Below this traffic a link stands still |
 | `show_all_ports` | `false` | Also list ports without link/traffic |
+| `model` | Model used to pick the port arrangement when the device registry has none |
+| `faceplate` | `auto` (default), `false` (no port strip on this card) or `{ rows, top, block, sfp }`: rows, `top: even` = even ports on the top row, columns per group, SFP side (`left`/`right`) |
+| `expect_speed` | Expected speed (Mbps or `1G`): linked ports slower than this get an amber outline. Override per port with `port_names: { ether5: { expect_speed: 100 } }`, `false` to skip |
 | `legend` | `true` | Show the color legend |
 | `top` | `5` | "Top talkers" table under the diagram: devices ranked by ↓+↑ traffic (bars proportional to the top device); `0` or `false` hides it |
 | `warm_mbps`, `hot_mbps` | `10`, `50` | Port boxes glow amber above `warm_mbps` and pulse red above `hot_mbps` (total ↓+↑); every port box also has a usage bar at the bottom |
@@ -137,7 +142,7 @@ edges:
 | `count` | Draws a stacked group with a `×N` badge (e.g. several modems) |
 | `entity` | Tapping a node without ports opens this entity |
 | `ports` | Port adapter, see below. Nodes with ports can be opened |
-| `port_names` | Per-port label: `"name \| ip"`, `{ name, ip, icon, show, poe }` (`poe: false` hides ⚡) or `false` to hide. Without a name the card uses the `device` / `device_ip` attributes of the link entity (routeros_ha: LLDP neighbor or DHCP lease comment), then the port comment |
+| `port_names` | Per-port label: `"name \| ip"`, `{ name, ip, icon, show, poe, optional }` (`poe: false` hides ⚡; `optional: true`: a device that is often off, losing link is not a fault) or `false` to hide. Without a name the card uses the `device` / `device_ip` attributes of the link entity (routeros_ha: LLDP neighbor or DHCP lease comment), then the port comment |
 | `show_all_ports` | Per-node version of the card option |
 
 ### Port adapters
@@ -173,10 +178,12 @@ ports:
 
 *Down* always means away from the Internet. Ports named in `from_port`/`to_port` are hidden from the device column.
 
+Full detail draws one wire per port listed in `from_port`/`to_port`. An edge with several ports becomes several wires, each with its own port's traffic; an end with no port goes to the edge of the card. Hover a port cell or a wire to highlight the whole path, click a cell for port details. Edges with port wires are not stacked by `chain`, because wires must route under the card.
+
 ## LAN Ports Card
 
 The same file also registers **`custom:lan-ports-card`**: a compact grid of switch ports, one row per device,
-using the same port adapters. Squares are colored by link speed; a red outline means no link, a dashed one a
+using the same port adapters. Squares are colored by link speed; a red outline means a port that should be linked has lost it, grey means empty, a hatched one a
 disabled port, a glowing edge means traffic, ⚡ is PoE. Hover (or long-press) shows the device, IP, speed and
 traffic; tapping opens the port entity.
 
@@ -225,6 +232,8 @@ sort: name        # name | signal (weakest first) | speed
 | 10 Gbps | 2.5 Gbps | 1 Gbps | 100 Mbps | 10 Mbps | no link |
 |---|---|---|---|---|---|
 | `#3b82f6` | `#14b8a6` | `#22c55e` | `#f59e0b` | `#9ca3af` | `#ef4444` |
+
+Port cells: colored by speed when linked, grey when empty, red outline when a port that must have link has lost it (it connects another node, or is named in `port_names`), hatched when disabled, amber outline when slower than `expect_speed`, a white triangle marks the uplink, ⚡ means PoE is being supplied.
 
 ## Development
 
