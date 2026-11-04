@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.7.1";
+export const VERSION = "0.7.2";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -1502,6 +1502,9 @@ export function detailMode(config, picked) {
   return config.detail === "simple" ? "simple" : "full";
 }
 
+/** Card hẹp hơn mức này thì hai nhóm nút xếp thành hai hàng trải hết bề ngang. */
+const NARROW_HEAD = 600;
+
 /** Các kiểu xem trên nút chuyển: [layout, icon]. */
 export const VIEWS = [
   ["auto", "mdi:auto-fix"],
@@ -1961,11 +1964,12 @@ async function defineCard() {
       return html`
         <ha-card>
           ${cfg.title || cfg.subtitle || cfg.view_switch !== false
-            ? html`<div class="head">
+            ? html`<div class="head ${width && width < NARROW_HEAD ? "narrow" : ""}">
                 ${cfg.title ? html`<div class="title">${cfg.title}</div>` : ""}
                 ${cfg.subtitle ? html`<div class="sub">${cfg.subtitle}</div>` : ""}
-                ${cfg.view_switch === false ? "" : this._renderViewSwitch(T)}
-                ${cfg.view_switch === false ? "" : this._renderDetailSwitch(T)}
+                ${cfg.view_switch === false
+                  ? ""
+                  : html`<div class="ctrls">${this._renderViewSwitch(T)}${this._renderDetailSwitch(T)}</div>`}
               </div>`
             : ""}
           <div class="viewport ${lay?.mode || ""} ${lay?.wired ? "wired" : ""}" style="height:${height}px">
@@ -2636,9 +2640,6 @@ async function defineCard() {
           top: -6px;
           font-size: 8px;
         }
-        .vswitch.detail {
-          margin-left: 0;
-        }
         .clickable {
           cursor: pointer;
         }
@@ -2964,8 +2965,14 @@ async function defineCard() {
           border: 1px solid var(--ltc-border);
           background: rgba(10, 18, 36, 0.45);
         }
-        .vswitch {
+        .ctrls {
           margin-left: auto;
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          gap: 6px;
+        }
+        .vswitch {
           display: inline-flex;
           gap: 2px;
           padding: 2px;
@@ -2996,14 +3003,31 @@ async function defineCard() {
           color: #67e8f9;
           box-shadow: 0 0 8px rgba(34, 211, 238, 0.35);
         }
-        /* 7 kiểu xem: chỉ nút đang chọn hiện chữ (tên đầy đủ ở tooltip), điện thoại chỉ icon. */
-        .vbtn:not(.on) span {
+        /* 7 kiểu xem: chỉ nút đang chọn hiện chữ (tên đầy đủ ở tooltip), card hẹp chỉ icon. */
+        .vbtn:not(.on) span,
+        .narrow .vbtn span {
           display: none;
         }
-        @media (max-width: 600px) {
-          .vbtn span {
-            display: none;
-          }
+        /* Card hẹp: mẫu hiển thị lên trước, mỗi nhóm một hàng, nút chia đều và đủ to để chạm. */
+        .narrow .ctrls {
+          flex: 1 0 100%;
+          margin: 6px 0 4px;
+          flex-direction: column;
+        }
+        .narrow .vswitch {
+          display: flex;
+        }
+        .narrow .vswitch.detail {
+          order: -1;
+        }
+        .narrow .vbtn {
+          flex: 1;
+          justify-content: center;
+          min-height: 34px;
+        }
+        /* Chỉ hai lựa chọn nên luôn ghi chữ, kể cả điện thoại: hai icon trơn không ai đoán ra. */
+        .vswitch.detail .vbtn span {
+          display: inline;
         }
         .legend {
           display: flex;
