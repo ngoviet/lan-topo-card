@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.7.0";
+export const VERSION = "0.7.1";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -637,7 +637,7 @@ export const FACEPLATES = {
 /** Cỡ ô: full = sơ đồ có dây; touch = danh sách/thẻ (đủ to để chạm); led = dải chấm của kiểu vòng. */
 export const FACE_METRICS = {
   full: { cell: 16, cellH: 15, sfpW: 22, gap: 2, blockGap: 6, faceGap: 8, pad: 10, padB: 8, label: true },
-  touch: { cell: 26, cellH: 24, sfpW: 32, gap: 2, blockGap: 6, faceGap: 8, pad: 10, padB: 8, label: true },
+  touch: { cell: 26, cellH: 24, sfpW: 32, gap: 2, blockGap: 6, faceGap: 8, pad: 10, padB: 8, label: true, rateLine: true },
   led: { cell: 6, cellH: 6, sfpW: 9, gap: 1, blockGap: 3, faceGap: 4, pad: 10, padB: 6, label: false },
 };
 
@@ -777,7 +777,8 @@ export function faceBox(it, w, h, M = FACE_METRICS.full, head = 0, maxW = Infini
   if (!it.panel) return { w, h, face: null };
   const face = panelLayout(it.panel, M, maxW - 2 * M.pad);
   // Dải chấm (kiểu vòng) không hiện phần chi tiết nên không cần chỗ cho nó.
-  const top = M.label ? Math.max(head, it.head ?? 0) : head;
+  // Kiểu danh sách không có nhãn trên dây nên lưu lượng nằm trên thẻ, thêm một dòng.
+  const top = M.label ? Math.max(head, (it.head ?? 0) + (M.rateLine ? (it.rateH ?? 0) : 0)) : head;
   face.y = top;
   const need = Math.max(w, face.w + 2 * M.pad, M.label ? (it.minW ?? 0) : 0);
   return { w: Math.min(need, Math.max(w, maxW)), h: top + face.h + M.padB, face };
@@ -1934,7 +1935,9 @@ async function defineCard() {
           const lines = (sub ? 1 : 0) + 1 + (this._uplinkEdge(id) ? 1 : 0) + (hasStats ? 1 : 0);
           // Chữ trên thẻ không được cắt: ước lượng 6,4px mỗi ký tự, dòng số liệu đủ bốn mục cần khoảng 216px.
           const minW = Math.min(300, 24 + Math.max(sub.length * 6.4, hasStats ? 216 : 0));
-          panels.set(id, { panel: portPanel(shown, spec), head: 34 + 17 * lines, minW });
+          const up = this._topo.edges.find((e) => e.to === id);
+          const rateH = this._rateText(up, traffic, locale) ? 17 : 0;
+          panels.set(id, { panel: portPanel(shown, spec), head: 34 + 17 * lines, rateH, minW });
         }
       }
       this._portsByNode = portsByNode;
@@ -1993,12 +1996,9 @@ async function defineCard() {
       const expandable = !!node.ports;
       const expanded = this._expanded.has(b.id);
       const up = ports ? ports.filter((p) => p.linked).length : 0;
-      const t = b.edge ? traffic.get(b.edge.key) : null;
       const status = [];
       if (ports) status.push(err ? (err === "no_device" ? T.no_device : err) : T.ports_up(up, ports.length));
-      if (INLINE_TRAFFIC.has(lay.mode) && t && b.edge.label !== false && (t.down !== null || t.up !== null)) {
-        status.push(`↓${formatRate(t.down, locale)} ↑${formatRate(t.up, locale)}`);
-      }
+      const rate = INLINE_TRAFFIC.has(lay.mode) ? this._rateText(b.edge, traffic, locale) : "";
       const count = Number(node.count) > 1 ? Number(node.count) : 0;
       const info = this._infoText(node.info);
       const rich = b.face?.label ? this._cardInfo.get(b.id) : null;
@@ -2006,6 +2006,7 @@ async function defineCard() {
       const brand = rich && (node.brand ?? rich.device?.manufacturer);
       const sub = rich ? rich.sub : info;
       if (rich) status[0] = `${status[0]} · ${T.behind(portsBehind(this._topo, portsByNode, b.id))}`;
+      else if (rate) status.push(rate);
       // Không có cổng nào lên nhưng cảm biến hệ thống vẫn báo số thì thiết bị vẫn sống.
       const alive = (e) => Number.isFinite(parseFloat(this.hass.states[e]?.state));
       const online = rich && (ports.some((p) => p.linked) || Object.values(rich.stats).some(alive));
@@ -2025,10 +2026,18 @@ async function defineCard() {
         </div>
         ${sub ? html`<div class="line">${sub}</div>` : ""}
         ${uplink ? html`<div class="line up">${uplink}</div>` : ""}
+        ${rich && rate ? html`<div class="line">${rate}</div>` : ""}
         ${rich ? this._renderStats(rich.stats, T) : ""}
         ${status.length ? html`<div class="line st">${status.join(" · ")}</div>` : ""}
         ${b.face ? this._renderFace(b, node, lay, T, locale) : ""}
       </div>`;
+    }
+
+    /** Lưu lượng của cạnh dạng "↓… ↑…"; rỗng nếu tắt nhãn hoặc chưa có số. */
+    _rateText(edge, traffic, locale) {
+      const t = edge && traffic.get(edge.key);
+      if (!t || edge.label === false || (t.down === null && t.up === null)) return "";
+      return `↓${formatRate(t.down, locale)} ↑${formatRate(t.up, locale)}`;
     }
 
     /** Dò cảm biến phải duyệt toàn bộ registry nên chỉ dò lại khi registry hoặc cấu hình đổi. */

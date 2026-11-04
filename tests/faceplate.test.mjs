@@ -472,3 +472,10 @@ test("faceBox: minW nới thẻ để không cắt chữ, nhưng không vượt 
   assert.equal(faceBox(it, 200, 74, FACE_METRICS.touch, 74, 200).w, 200);
   assert.equal(faceBox(it, 170, 60, FACE_METRICS.led, 60, 170).w, 170);
 });
+
+test("faceBox: dòng lưu lượng chỉ thêm chiều cao ở kiểu danh sách", () => {
+  const it = { ...panelOf([port("ether1")]), rateH: 17 };
+  const flat = { ...it, rateH: 0 };
+  assert.equal(faceBox(it, 300, 74, FACE_METRICS.touch, 0, 300).h - faceBox(flat, 300, 74, FACE_METRICS.touch, 0, 300).h, 17);
+  assert.equal(faceBox(it, 180, 74).h, faceBox(flat, 180, 74).h);
+});
