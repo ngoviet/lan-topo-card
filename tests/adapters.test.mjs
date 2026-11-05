@@ -253,6 +253,7 @@ test("poeCount: chỉ đếm cổng đang cấp PoE có ô trên mặt trước 
   assert.equal(poeCount(node, ports), 1);
   assert.equal(poeCount({ portNames: {} }, ports), 3);
   assert.equal(poeCount({}, ports), 3);
+  assert.equal(poeCount({ stats: false, portNames: {} }, ports), 0); // stats: false tắt cả dòng
 });
 
 test("readPort: sensor tốc độ báo -1 (chưa biết) → speedMbps null, không coi là có link", () => {

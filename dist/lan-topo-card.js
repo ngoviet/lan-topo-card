@@ -380,8 +380,9 @@ export function poeOn(port, meta = {}) {
   return meta.poe !== false && port.poe === true && port.linked === true;
 }
 
-/** Số cổng đang cấp PoE trong số cổng có ô trên mặt trước thẻ (cổng ẩn không có ô nên không đếm). */
+/** Số cổng đang cấp PoE trong số cổng có ô trên mặt trước thẻ (cổng ẩn không có ô nên không đếm; `stats: false` tắt cả dòng số liệu). */
 export function poeCount(node, ports) {
+  if (node.stats === false) return 0;
   return ports.filter((p) => {
     const meta = node.portNames?.[p.name] || {};
     return !meta.hide && poeOn(p, meta);
