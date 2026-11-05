@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.8.0";
+export const VERSION = "0.8.1";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -110,25 +110,13 @@ export function flowWidth(bps, { min = 1.2, max = 7, perDecade = 1.1 } = {}) {
 }
 
 /**
- * Độ dày sợi ↓/↑ của dây tới thiết bị cuối: cùng thang log10 nhưng dốc hơn (1,4 px mỗi bậc ×10)
- * để 5 · 30 · 800 Mbps nhìn ra khác nhau: 100 kbps ≈ 0,8 · 1 Mbps ≈ 2,2 · 10 Mbps ≈ 3,6 ·
- * 100 Mbps ≈ 5 · 1 Gbps chạm trần `max`.
+ * Độ dày (px) một sợi ↓ hoặc ↑ của dây tới thiết bị / dây giữa 2 switch: log10 trải đều từ
+ * 100 kbps (`min`) tới 1 Gbps (`max`), nên dây nào cũng dùng hết dải dày được trong chỗ của nó.
+ * Với max 5: 1 Mbps ≈ 1,9 · 10 Mbps ≈ 2,9 · 100 Mbps ≈ 4 · 1 Gbps trở lên = 5.
  */
-export function leafFlowWidth(bps, max = 6) {
-  return flowWidth(bps, { min: 0.8, perDecade: 1.4, max });
-}
-
-/**
- * Đoạn cuối của dây vào ô thiết bị (đoạn ngang sau góc bo cuối), nơi đủ chỗ vẽ sợi dày theo lưu
- * lượng — phần còn lại của dây phải lọt khe 2 px giữa các ô cổng nên luôn mảnh. Null nếu quá ngắn.
- */
-export function tailPath(pts, { skip = 10, minLen = 24 } = {}) {
-  if (!pts || pts.length < 2) return null;
-  const [ax, ay] = pts[pts.length - 2];
-  const [zx, zy] = pts[pts.length - 1];
-  if (ay !== zy || Math.abs(zx - ax) < minLen) return null;
-  const r = (n) => Math.round(n * 10) / 10;
-  return `M${r(ax + Math.sign(zx - ax) * skip)} ${r(zy)}H${r(zx)}`;
+export function trafficWidth(bps, max = 5, min = 0.8) {
+  if (!bps || bps <= 1e5 || max <= min) return Math.min(min, max);
+  return Math.min(max, min + ((max - min) * Math.log10(bps / 1e5)) / 4);
 }
 
 /** So sánh tự nhiên: ether2 < ether10 < sfp-sfpplus1. */
@@ -657,10 +645,13 @@ export const LAYOUT = {
   vNodeH: 70,
   vPortH: 42,
   vGap: 10,
-  // dây vào cổng: viền .node và các làn ngang dưới đáy thẻ
+  // dây vào cổng: viền .node và các làn ngang dưới đáy thẻ. Khoảng cách làn/kênh = bề rộng tối đa
+  // của một dây (2 sợi ↓/↑ dày theo lưu lượng) để dây dày nhất không đè dây bên cạnh.
   nodeBorder: 1,
   laneTop: 9,
-  laneStep: 7,
+  laneStep: 10,
+  chStep: 10, // kênh dọc giữa thẻ cha và cột con (sơ đồ ngang)
+  dChStep: 8, // trục dọc bên trái cột thiết bị (cây dọc) — hẹp hơn để cột không thụt quá sâu
 };
 
 // ═══════════════════════════════ Mặt trước thiết bị ═══════════════════════════════
@@ -971,7 +962,7 @@ export function layoutHorizontal(trees, L = LAYOUT, { chain = "row" } = {}) {
     let cy = top + (it._h - it._ch) / 2;
     it.children.forEach((c, i) => {
       if (i) cy += gap(it.children[i - 1], c);
-      place(c, x + w + L.colGap + Math.max(0, (it.fan ?? 0) * 6 + 14 - 60), cy, box);
+      place(c, x + w + L.colGap + Math.max(0, (it.fan ?? 0) * L.chStep + 14 - 60), cy, box);
       cy += c._h;
     });
   };
@@ -1242,7 +1233,7 @@ export function layoutDown(trees, L = LAYOUT) {
   // Dây vào cổng của node con đi vòng bên trái thẻ con, xuống tới dải cổng ở đáy thẻ.
   const gutter = (it) => (it.wires ? 8 + it.wires.length * L.laneStep : 0);
   // Dây cắm vào ô đi xuống theo trục riêng bên trái cột cổng.
-  const indent = (it) => Math.max(L.dIndent, 12 + (it.plugged ?? 0) * 4);
+  const indent = (it) => Math.max(L.dIndent, 12 + (it.plugged ?? 0) * L.dChStep);
   const measure = (it) => {
     let w = it.children.some(isPort) ? indent(it) + L.portW : 0;
     for (const c of it.children.filter((c) => !isPort(c))) w += (w ? L.dColGap : 0) + gutter(c) + measure(c);
@@ -1419,6 +1410,48 @@ function cleanPts(P) {
 }
 
 /**
+ * Tách dây thành phần nằm trong thẻ (ô cổng → mép dưới thẻ: phải lọt khe 2 px giữa các ô nên luôn
+ * mảnh) và phần ngoài thẻ (làn, kênh, đoạn vào thiết bị: đủ chỗ cho dây dày theo lưu lượng).
+ * Trả { outer: điểm của phần ngoài, inner: [[p, q], …] các đoạn thẳng nằm trong thẻ cha/con }.
+ */
+export function splitWire(pts, P, C) {
+  const out = pts.map((p) => [...p]);
+  const inner = [];
+  const bottom = (B) => B.y + B.h;
+  const inside = (p, B) => !!B && p[0] >= B.x && p[0] <= B.x + B.w && p[1] >= B.y && p[1] < bottom(B);
+  // Đầu ra: đi thẳng xuống từ ô cổng tới quá đáy thẻ cha.
+  if (out.length > 2 && inside(out[0], P) && out[1][0] === out[0][0] && out[1][1] > bottom(P)) {
+    inner.push([out[0], [out[0][0], bottom(P)]]);
+    out[0] = [out[0][0], bottom(P)];
+  }
+  // Đầu vào: đi thẳng lên từ dưới đáy thẻ con vào ô cổng.
+  const n = out.length;
+  if (n > 2 && inside(out[n - 1], C) && out[n - 2][0] === out[n - 1][0] && out[n - 2][1] > bottom(C)) {
+    inner.push([[out[n - 1][0], bottom(C)], out[n - 1]]);
+    out[n - 1] = [out[n - 1][0], bottom(C)];
+  }
+  return { outer: out, inner };
+}
+
+/**
+ * Đường song song cách đường gấp khúc vuông góc `pts` một khoảng `t` (dương = bên trái theo chiều đi,
+ * trục y hướng xuống). Ở góc vuông dời theo tổng 2 pháp tuyến nên 2 sợi ↓/↑ không bắt chéo nhau.
+ */
+export function offsetPts(pts, t) {
+  if (!t || pts.length < 2) return pts;
+  const norm = (p, q) => {
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+    return [(q[1] - p[1]) / len, -(q[0] - p[0]) / len];
+  };
+  return pts.map((p, i) => {
+    const a = i > 0 ? norm(pts[i - 1], p) : null;
+    const b = i < pts.length - 1 ? norm(p, pts[i + 1]) : null;
+    const [nx, ny] = a && b ? (Math.abs(a[0] * b[0] + a[1] * b[1]) < 1e-9 ? [a[0] + b[0], a[1] + b[1]] : a) : a || b;
+    return [p[0] + t * nx, p[1] + t * ny];
+  });
+}
+
+/**
  * Thay đường nối thẻ–thẻ bằng dây cắm thẳng vào ô cổng (sơ đồ ngang, cây dọc). Dây ra đáy thẻ cha,
  * chạy trong làn dưới thẻ, sang kênh dọc giữa 2 thẻ rồi vào làn dưới thẻ con. Thứ tự làn giảm dây
  * cắt nhau: dây ra — cổng càng trái làn càng sâu; dây vào — cổng càng phải làn càng sâu. Lá cổng
@@ -1481,23 +1514,28 @@ export function routeWires(lay, L = LAYOUT) {
   for (const box of nodes.values()) {
     const mine = wires.filter((w) => w.P === box && !w.straight);
     if (down) {
-      mine.filter((w) => w.leaf).sort((u, v) => u.ya - v.ya).forEach((w, i) => (w.ch = box.x + 6 + i * 4));
+      mine.filter((w) => w.leaf).sort((u, v) => u.ya - v.ya).forEach((w, i) => (w.ch = box.x + 6 + i * L.dChStep));
       continue;
     }
     const target = (w) => (w.b ? w.yb : w.midY);
-    const place = (list) => list.forEach((w, i) => (w.ch = box.x + box.w + 10 + i * 6));
+    const place = (list) => list.forEach((w, i) => (w.ch = box.x + box.w + 10 + i * L.chStep));
     place(mine.filter((w) => target(w) < w.ya).sort((u, v) => u.ya - v.ya));
     place(mine.filter((w) => target(w) >= w.ya).sort((u, v) => v.ya - u.ya));
   }
   const byTarget = [...wires].sort((u, v) => u.C.y - v.C.y);
   const wireOf = new Map();
+  // Bề rộng tối đa của một dây = khoảng cách nhỏ nhất tới dây kế bên trên đường nó đi: làn, kênh,
+  // và đoạn thả từ ô cổng — 2 ô cùng cột (hàng trên/dưới) có dây cách nhau nửa bước ô (9 px).
+  // Mọi dây cùng kiểu bố cục dùng chung một mức để cùng lưu lượng thì cùng độ dày.
+  const pitch = (FACE_METRICS.full.cell + FACE_METRICS.full.gap) / 2;
+  const room = (w) => Math.min(pitch, L.laneStep, w.leaf && down ? L.dChStep : down ? L.laneStep : L.chStep);
   for (const w of byTarget) {
     const { P, C, a, b, ya, yb, midY } = w;
     if (w.leaf) {
       const pts = cleanPts([[a.x, a.y], [a.x, ya], [w.ch, ya], [w.ch, midY], [C.x, midY]]);
       wireOf.set(`${P.id}/${w.from}`, w.l.key);
       links.push({
-        ...w.l, dir: undefined, pts, wire: { leaf: true, count: 1 },
+        ...w.l, dir: undefined, pts, wire: { leaf: true, count: 1, room: room(w), ...splitWire(pts, P, C) },
         x1: a.x, y1: a.y, x2: C.x, y2: midY,
         plugs: [a.plug ?? [a.x, a.y]],
       });
@@ -1518,7 +1556,7 @@ export function routeWires(lay, L = LAYOUT) {
     const z = clean[clean.length - 1];
     links.push({
       key, kind: "node", edge: w.l.edge, pts: clean,
-      wire: { from: w.from, to: w.to, count: w.n, label: w.first },
+      wire: { from: w.from, to: w.to, count: w.n, label: w.first, room: room(w), ...splitWire(clean, P, C) },
       x1: a.x, y1: a.y, x2: z[0], y2: z[1],
       plugs: [w.from !== null ? a.plug ?? [a.x, a.y] : null, w.to !== null ? b?.plug ?? z : null].filter(Boolean),
       lx: down ? (ch ?? C.x) + 5 : C.x - 6,
@@ -2515,6 +2553,37 @@ async function defineCard() {
     }
 
     /**
+     * Dây cắm vào cổng (mẫu Đầy đủ). Đoạn trong thẻ (ô cổng → mép thẻ) mảnh vì phải lọt khe 2 px
+     * giữa các ô; phần ngoài thẻ là 2 sợi ↓/↑ song song, mỗi sợi dày theo lưu lượng của chiều đó,
+     * tối đa vừa khoảng cách tới dây bên cạnh (`wire.room`).
+     */
+    _wireEdges(want, l, { down, up, color, w, hot, lvD, lvU, r1 }) {
+      const wk = l.key;
+      const { inner, outer, room } = l.wire;
+      if (inner.length) {
+        const di = inner.map(([p, q]) => `M${r1(p[0])} ${r1(p[1])}L${r1(q[0])} ${r1(q[1])}`).join("");
+        const id = flowWidth(down, { max: 1.6 });
+        const iu = flowWidth(up, { max: 1.6 });
+        const t = r1(((id + iu) / 4 + 0.6) * 0.7);
+        want.set(`${l.key}|b`, { d: di, cls: `base wire ${hot}`, style: `--c:${color};--w:${r1(Math.max(w, id + iu + 1))}px`, wk });
+        want.set(`${l.key}|d`, { d: di, cls: `flow down lv${lvD}`, style: `--c:${color};--fw:${r1(id)}px`, tr: `translate(${-t} ${-t})`, wk });
+        want.set(`${l.key}|u`, { d: di, cls: `flow up lv${lvU}`, style: `--c:${color};--fw:${r1(iu)}px`, tr: `translate(${t} ${t})`, wk });
+      }
+      // Mỗi sợi 0,5 px (rảnh) → (room − 2) / 2 px (1 Gbps), chừa 1 px khe với dây bên cạnh.
+      const cap = Math.max(1, (room - 2) / 2);
+      const od = trafficWidth(down, cap, 0.5);
+      const ou = trafficWidth(up, cap, 0.5);
+      const path = (t) => linkPath({ pts: offsetPts(outer, t) });
+      // Ống mờ ôm cả 2 sợi (lệch về phía sợi dày hơn), không mảnh hơn mức tốc độ link.
+      want.set(`${l.key}|ob`, { d: path((od - ou) / 2), cls: `base wire ${hot}`, style: `--c:${color};--w:${r1(Math.max(w, od + ou + 1))}px`, wk });
+      want.set(`${l.key}|od`, { d: path(od / 2 + 0.4), cls: `flow down lv${lvD}`, style: `--c:${color};--fw:${r1(od)}px`, wk });
+      want.set(`${l.key}|ou`, { d: path(-(ou / 2 + 0.4)), cls: `flow up lv${lvU}`, style: `--c:${color};--fw:${r1(ou)}px`, wk });
+      want.set(`${l.key}|p`, { d: l.plugs.map(([x, y]) => `M${r1(x)} ${r1(y)}h0`).join(""), cls: "plug", style: `--c:${color}`, wk });
+      // Vùng rê chuột chỉ ở đoạn ngoài thẻ, không che các ô cổng.
+      if (l.pts.length > 3) want.set(`${l.key}|h`, { d: linkPath({ pts: l.pts.slice(1, -1) }), cls: "hit", style: "", wk });
+    }
+
+    /**
      * Vẽ đường nối bằng SVG thật, giữ phần tử cũ theo key và chỉ đổi thuộc tính khi khác —
      * tạo lại path mỗi lần cập nhật sẽ khởi động lại animation (đường giật).
      */
@@ -2548,19 +2617,24 @@ async function defineCard() {
           color = speedColor(l.port.speedMbps, l.port.linked !== false);
           w = 1.6;
         }
+        const r1 = (n) => Math.round(n * 10) / 10;
+        const lvD = flowLevel(down, this._idleBps);
+        const lvU = flowLevel(up, this._idleBps);
+        if (l.wire) {
+          this._wireEdges(want, l, { down, up, color, w, hot, lvD, lvU, r1 });
+          continue;
+        }
         // Ống mờ = dung lượng link; 2 sợi ↓/↑ dày theo lưu lượng thật (log), tách 2 bên ống.
-        // Dây vào cổng mảnh hơn: phải lọt khe 2 px giữa các ô (đoạn cuối vào thiết bị vẽ dày riêng ở dưới).
-        const leaf = l.kind === "port" && !l.wire;
-        const cap = l.wire ? 1.6 : l.kind === "node" ? 5.6 : 4.5;
-        const wd = leaf ? leafFlowWidth(down, cap) : flowWidth(down, { max: cap });
-        const wu = leaf ? leafFlowWidth(up, cap) : flowWidth(up, { max: cap });
+        const leaf = l.kind === "port";
+        const cap = leaf ? 4.5 : 5.6;
+        const wd = leaf ? trafficWidth(down, cap) : flowWidth(down, { max: cap });
+        const wu = leaf ? trafficWidth(up, cap) : flowWidth(up, { max: cap });
         const base = Math.max(w, wd + wu + 1);
         const off = (wd + wu) / 4 + 0.6;
         const upright = lay.mode === "vertical" || l.dir === "v" || l.dir === "list";
         const len = Math.hypot(l.x2 - l.x1, l.y2 - l.y1) || 1;
         const nx = -(l.y2 - l.y1) / len; // pháp tuyến của đoạn cha → con
         const ny = (l.x2 - l.x1) / len;
-        const r1 = (n) => Math.round(n * 10) / 10;
         const tr = (sign) =>
           l.polar
             ? `translate(${r1(sign * off * nx)} ${r1(sign * off * ny)})`
@@ -2569,25 +2643,9 @@ async function defineCard() {
               : upright
               ? `translate(${sign * off} 0)`
               : `translate(0 ${sign * off})`;
-        const wk = l.wire ? l.key : undefined;
-        want.set(`${l.key}|b`, { d, cls: `base ${l.wire ? "wire" : ""} ${hot}`, style: `--c:${color};--w:${r1(base)}px`, wk });
-        want.set(`${l.key}|d`, { d, cls: `flow down lv${flowLevel(down, this._idleBps)}`, style: `--c:${color};--fw:${r1(wd)}px`, tr: tr(-1), wk });
-        want.set(`${l.key}|u`, { d, cls: `flow up lv${flowLevel(up, this._idleBps)}`, style: `--c:${color};--fw:${r1(wu)}px`, tr: tr(1), wk });
-        if (l.wire) {
-          want.set(`${l.key}|p`, { d: l.plugs.map(([x, y]) => `M${r1(x)} ${r1(y)}h0`).join(""), cls: "plug", style: `--c:${color}`, wk });
-          // Vùng rê chuột chỉ ở đoạn ngoài thẻ, không che các ô cổng.
-          if (l.pts.length > 3) want.set(`${l.key}|h`, { d: linkPath({ pts: l.pts.slice(1, -1) }), cls: "hit", style: "", wk });
-          // Đoạn ngang cuối vào ô thiết bị: đủ chỗ nên 2 sợi ↓/↑ dày theo lưu lượng như dây mẫu đơn giản.
-          const tail = l.wire.leaf ? tailPath(l.pts) : null;
-          if (tail) {
-            const td = leafFlowWidth(down);
-            const tu = leafFlowWidth(up);
-            const toff = (td + tu) / 4 + 0.6;
-            want.set(`${l.key}|tb`, { d: tail, cls: `base tail ${hot}`, style: `--c:${color};--w:${r1(td + tu + 1)}px`, wk });
-            want.set(`${l.key}|td`, { d: tail, cls: `flow down lv${flowLevel(down, this._idleBps)}`, style: `--c:${color};--fw:${r1(td)}px`, tr: `translate(0 ${r1(-toff)})`, wk });
-            want.set(`${l.key}|tu`, { d: tail, cls: `flow up lv${flowLevel(up, this._idleBps)}`, style: `--c:${color};--fw:${r1(tu)}px`, tr: `translate(0 ${r1(toff)})`, wk });
-          }
-        }
+        want.set(`${l.key}|b`, { d, cls: `base ${hot}`, style: `--c:${color};--w:${r1(base)}px` });
+        want.set(`${l.key}|d`, { d, cls: `flow down lv${lvD}`, style: `--c:${color};--fw:${r1(wd)}px`, tr: tr(-1) });
+        want.set(`${l.key}|u`, { d, cls: `flow up lv${lvU}`, style: `--c:${color};--fw:${r1(wu)}px`, tr: tr(1) });
       }
       const existing = new Map();
       for (const el of [...svg.children]) {
