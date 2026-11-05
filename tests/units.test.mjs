@@ -113,6 +113,26 @@ test("flowWidth: dày theo log10 lưu lượng, có chặn", async () => {
   assert.ok(flowWidth(50e6) > flowWidth(5e6)); // gấp 10 lần lưu lượng → dày hơn
 });
 
+test("leafFlowWidth: dây tới thiết bị dốc hơn, 7 vs 28 vs 775 Mbps khác nhau rõ", async () => {
+  const { leafFlowWidth } = await import("../dist/lan-topo-card.js");
+  assert.equal(leafFlowWidth(0), 0.8);
+  assert.ok(Math.abs(leafFlowWidth(1e7) - 3.6) < 1e-9);
+  assert.ok(Math.abs(leafFlowWidth(1e8) - 5) < 1e-9);
+  assert.equal(leafFlowWidth(1e9), 6);
+  assert.equal(leafFlowWidth(1e9, 4.5), 4.5);
+  assert.ok(leafFlowWidth(28e6) - leafFlowWidth(7e6) > 0.8);
+  assert.ok(leafFlowWidth(775e6) - leafFlowWidth(28e6) > 1.5);
+});
+
+test("tailPath: đoạn ngang cuối của dây, bỏ góc bo; ngắn hoặc không nằm ngang thì null", async () => {
+  const { tailPath } = await import("../dist/lan-topo-card.js");
+  assert.equal(tailPath([[10, 0], [10, 50], [40, 50], [100, 50]]), "M50 50H100");
+  assert.equal(tailPath([[0, 0], [0, 50], [-80, 50]]), "M-10 50H-80");
+  assert.equal(tailPath([[0, 0], [0, 50], [20, 50]]), null);
+  assert.equal(tailPath([[0, 0], [40, 50]]), null);
+  assert.equal(tailPath(null), null);
+});
+
 test("speedColor / speedLabel: tốc độ ≤ 0 hoặc NaN = chưa biết, không ném lỗi", () => {
   for (const v of [-1, NaN, 0]) {
     assert.equal(speedColor(v), UNKNOWN_SPEED_COLOR);
