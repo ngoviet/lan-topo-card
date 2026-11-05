@@ -146,7 +146,7 @@ edges:
 | `port_names` | Per-port label: `"name \| ip"`, `{ name, ip, icon, show, poe, optional }` (`poe: false` hides ⚡; `optional: true`: a device that is often off, losing link is not a fault) or `false` to hide. Without a name the card uses the `device` / `device_ip` attributes of the link entity (routeros_ha: LLDP neighbor or DHCP lease comment), then the port comment |
 | `show_all_ports` | Per-node version of the card option |
 | `brand` | Vendor badge on the card (defaults to the device registry) |
-| `stats` | CPU, RAM, uptime and temperature line on full-detail cards. Detected from the device's entity names; override with `{ cpu, ram, uptime, temp }`, `false` to disable |
+| `stats` | CPU, RAM, uptime, temperature and the number of ports currently supplying PoE, on full-detail cards. Detected from the device's entity names; override with `{ cpu, ram, uptime, temp }`, `false` to disable |
 | `model` | Model used to pick the port arrangement; takes priority over the device registry. With neither, the adapter's `prefix` is tried |
 | `faceplate` | `auto` (default), `false` (no port strip on this card) or `{ rows, top, block, sfp }`: rows, `top: even` = even ports on the top row, columns per group, SFP side (`left`/`right`) |
 | `expect_speed` | Expected speed (Mbps or `1G`): linked ports slower than this get an amber outline. Override per port with `port_names: { ether5: { expect_speed: 100 } }`, `false` to skip |

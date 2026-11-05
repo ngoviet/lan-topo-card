@@ -380,6 +380,14 @@ export function poeOn(port, meta = {}) {
   return meta.poe !== false && port.poe === true && port.linked === true;
 }
 
+/** Số cổng đang cấp PoE trong số cổng có ô trên mặt trước thẻ (cổng ẩn không có ô nên không đếm). */
+export function poeCount(node, ports) {
+  return ports.filter((p) => {
+    const meta = node.portNames?.[p.name] || {};
+    return !meta.hide && poeOn(p, meta);
+  }).length;
+}
+
 /** Đọc giá trị hiện tại của 1 cổng. rx = switch nhận vào cổng, tx = switch gửi ra cổng. */
 export function readPort(states, def) {
   const linkSt = stateOf(states, def.link);
@@ -2052,12 +2060,13 @@ async function defineCard() {
           const stats = this._statsOf(id, node, device);
           Object.values(stats).forEach((e) => this._tracked.add(e));
           const sub = this._cardSub(node, device);
-          const poe = ports.filter((p) => poeOn(p, node.portNames[p.name] || {})).length;
+          const poe = poeCount(node, ports);
           this._cardInfo.set(id, { device, stats, sub, poe });
           const hasStats = Object.keys(stats).length > 0 || poe > 0;
           const lines = (sub ? 1 : 0) + 1 + (this._uplinkEdge(id) ? 1 : 0) + (hasStats ? 1 : 0);
-          // Chữ trên thẻ không được cắt: ước lượng 6,4px mỗi ký tự, dòng số liệu đủ bốn mục cần khoảng 216px.
-          const minW = Math.min(300, 24 + Math.max(sub.length * 6.4, Object.keys(stats).length ? 216 : 0));
+          // Chữ trên thẻ không được cắt: ước lượng 6,4px mỗi ký tự, dòng số liệu khoảng 54px mỗi mục (tối thiểu bốn mục).
+          const statItems = Object.keys(stats).length + (poe ? 1 : 0);
+          const minW = Math.min(300, 24 + Math.max(sub.length * 6.4, statItems ? Math.max(4, statItems) * 54 : 0));
           const up = this._topo.edges.find((e) => e.to === id);
           const rateH = this._rateText(up, traffic, locale) ? 17 : 0;
           panels.set(id, { panel: portPanel(shown, spec), head: 34 + 17 * lines, rateH, minW });
@@ -2227,7 +2236,7 @@ async function defineCard() {
       return [device?.model, ip && !info.includes(ip) ? ip : null, info].filter(Boolean).join(" · ");
     }
 
-    /** Dòng CPU · RAM · thời gian chạy · nhiệt độ. Cảm biến lỗi thì bỏ mục đó. */
+    /** Dòng CPU · RAM · thời gian chạy · nhiệt độ · số cổng đang cấp PoE. Cảm biến lỗi thì bỏ mục đó. */
     _renderStats({ stats, poe }, T) {
       const val = (id) => {
         const st = id ? this.hass.states[id] : undefined;

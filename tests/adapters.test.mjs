@@ -240,6 +240,21 @@ test("poeOn: chỉ khi PoE bật và có link, port_names poe:false tắt hẳn"
   assert.equal(poeOn({ poe: true, linked: true }, { poe: false }), false); // uplink
 });
 
+test("poeCount: chỉ đếm cổng đang cấp PoE có ô trên mặt trước thẻ", async () => {
+  const { poeCount } = await import("../dist/lan-topo-card.js");
+  const node = { portNames: { ether2: { hide: true }, ether3: { poe: false } } };
+  const ports = [
+    { name: "ether1", poe: true, linked: true },
+    { name: "ether2", poe: true, linked: true }, // ẩn khỏi dải → không có ô
+    { name: "ether3", poe: true, linked: true }, // port_names poe:false → không cấp
+    { name: "ether4", poe: true, linked: false }, // cổng trống
+    { name: "ether5", poe: null, linked: true },
+  ];
+  assert.equal(poeCount(node, ports), 1);
+  assert.equal(poeCount({ portNames: {} }, ports), 3);
+  assert.equal(poeCount({}, ports), 3);
+});
+
 test("readPort: sensor tốc độ báo -1 (chưa biết) → speedMbps null, không coi là có link", () => {
   const states = { "sensor.sw_port_1_link_speed": st("-1", { unit_of_measurement: "Mbit/s" }) };
   const p = readPort(states, { name: "1", speed: "sensor.sw_port_1_link_speed" });

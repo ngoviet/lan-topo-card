@@ -144,7 +144,7 @@ edges:
 | `port_names` | Tên từng cổng: `"tên \| ip"`, `{ name, ip, icon, show, poe, optional }` (`poe: false` ẩn ⚡; `optional: true`: máy hay tắt, mất link không báo lỗi), hoặc `false` để ẩn. Không ghi tên thì card dùng thuộc tính `device` / `device_ip` của entity link (routeros_ha: LLDP neighbor hoặc comment DHCP lease), rồi tới comment của cổng |
 | `show_all_ports` | Như tuỳ chọn của card nhưng chỉ cho node này |
 | `brand` | Nhãn hãng trên thẻ (mặc định lấy từ device registry) |
-| `stats` | Dòng CPU, RAM, thời gian chạy, nhiệt độ trên thẻ mẫu đầy đủ. Tự nhận theo tên entity của device; ghi đè bằng `{ cpu, ram, uptime, temp }`, `false` để tắt |
+| `stats` | Dòng CPU, RAM, thời gian chạy, nhiệt độ và số cổng đang cấp PoE trên thẻ mẫu đầy đủ. Tự nhận theo tên entity của device; ghi đè bằng `{ cpu, ram, uptime, temp }`, `false` để tắt |
 | `model` | Model để chọn cách xếp cổng, ưu tiên hơn device registry. Không có cả hai thì thử `prefix` của adapter |
 | `faceplate` | `auto` (mặc định), `false` (thẻ này không có dải cổng) hoặc `{ rows, top, block, sfp }`: số hàng, `top: even` = cổng chẵn ở hàng trên, số cột mỗi cụm, phía đặt SFP (`left`/`right`) |
 | `expect_speed` | Tốc độ kỳ vọng (Mbps hoặc `1G`): cổng có link mà chậm hơn được viền vàng. Ghi đè từng cổng bằng `port_names: { ether5: { expect_speed: 100 } }`, `false` để bỏ |
