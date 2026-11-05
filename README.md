@@ -36,7 +36,7 @@ and stand still when idle.
 - **Any data-rate unit**: bit/s, kbit/s, Mbit/s, Gbit/s, B/s, kB/s, MB/s, KiB/s…
 - **Tap a switch** to open its device column: only ports with a link or traffic, without the ports that connect to
   other switches. Ports are colored by link speed, with a built-in legend.
-- **Port detail panel**: tap a port to see its status, the far end of the wire, device, IP, MAC, traffic and link drops, on phones too.
+- **Port detail panel**: tap a port to see its status, the far end of the wire, device, IP, MAC, traffic and link drops, on phones too. The MAC and link-drop rows appear when the link entity carries `device_mac` / `link_downs`.
 - **Collapse branches**: the `−` button on a card hides everything behind the node, `+N` brings it back; each browser remembers its own choice.
 - **Two detail levels** (`detail`): Full shows every port on the device card, with wires plugged into the exact
   ports; Simple keeps the compact cards.
@@ -128,7 +128,7 @@ edges:
 | `show_all_ports` | `false` | Also list ports without link/traffic |
 | `legend` | `true` | Show the color legend |
 | `top` | `5` | "Top talkers" table under the diagram: devices ranked by ↓+↑ traffic (bars proportional to the top device); `0` or `false` hides it |
-| `warm_mbps`, `hot_mbps` | `10`, `50` | Port boxes glow amber above `warm_mbps` and pulse red above `hot_mbps` (total ↓+↑); every port box also has a traffic bar at the bottom, its length linear to ↓+↑ against the busiest port shown (↓ part in the port color, ↑ part in pink; `warm_mbps` is the floor of the scale). The wire into each device gets thicker with its traffic |
+| `warm_mbps`, `hot_mbps` | `10`, `50` | Port leaf cards glow amber above `warm_mbps` and pulse red above `hot_mbps` (total ↓+↑); each of them also has a traffic bar at the bottom, its length linear to ↓+↑ against the busiest port shown (↓ part in the port color, ↑ part in pink; `warm_mbps` is the floor of the scale). The last stretch of the wire into each device card gets thicker with its traffic |
 | `motion` | `on` | `on`: flow dots always move (they carry information); `auto`: stop when the OS asks for reduced motion (Windows *Animation effects* off); `off`: never move |
 | `language` | HA language | `vi` or `en` |
 
@@ -146,7 +146,7 @@ edges:
 | `port_names` | Per-port label: `"name \| ip"`, `{ name, ip, icon, show, poe, optional }` (`poe: false` hides ⚡; `optional: true`: a device that is often off, losing link is not a fault) or `false` to hide. Without a name the card uses the `device` / `device_ip` attributes of the link entity (routeros_ha: LLDP neighbor or DHCP lease comment), then the port comment |
 | `show_all_ports` | Per-node version of the card option |
 | `brand` | Vendor badge on the card (defaults to the device registry) |
-| `stats` | CPU, RAM, uptime, temperature and the number of ports currently supplying PoE, on full-detail cards. Detected from the device's entity names; override with `{ cpu, ram, uptime, temp }`, `false` to disable |
+| `stats` | CPU, RAM, uptime, temperature and the number of ports currently supplying PoE (counted among the ports shown on the card), on full-detail cards. Detected from the device's entity names; override with `{ cpu, ram, uptime, temp }`, `false` to disable |
 | `model` | Model used to pick the port arrangement; takes priority over the device registry. With neither, the adapter's `prefix` is tried |
 | `faceplate` | `auto` (default), `false` (no port strip on this card) or `{ rows, top, block, sfp }`: rows, `top: even` = even ports on the top row, columns per group, SFP side (`left`/`right`) |
 | `expect_speed` | Expected speed (Mbps or `1G`): linked ports slower than this get an amber outline. Override per port with `port_names: { ether5: { expect_speed: 100 } }`, `false` to skip |

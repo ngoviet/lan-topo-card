@@ -35,7 +35,7 @@ Card Lovelace cho Home Assistant vẽ mạng LAN thành một cây sống:
 - **Đơn vị bất kỳ**: bit/s, kbit/s, Mbit/s, Gbit/s, B/s, kB/s, MB/s, KiB/s…
 - **Bấm vào switch** để mở cột thiết bị: chỉ hiện cổng có link hoặc có lưu lượng, ẩn cổng nối sang switch khác.
   Màu cổng theo tốc độ link, có chú thích ngay trong card.
-- **Khung chi tiết cổng**: bấm ô cổng để xem trạng thái, đầu kia của dây, thiết bị, IP, MAC, lưu lượng và số lần mất link, dùng được cả trên điện thoại.
+- **Khung chi tiết cổng**: bấm ô cổng để xem trạng thái, đầu kia của dây, thiết bị, IP, MAC, lưu lượng và số lần mất link, dùng được cả trên điện thoại. Dòng MAC và số lần mất link chỉ hiện khi entity link có thuộc tính `device_mac` / `link_downs`.
 - **Thu nhánh**: nút `−` trên thẻ ẩn toàn bộ phía sau node, `+N` để mở lại; mỗi trình duyệt nhớ riêng.
 - **Hai mẫu hiển thị** (`detail`): Đầy đủ hiện từng cổng trên thẻ thiết bị, dây cắm thẳng vào đúng cổng; Đơn giản giữ
   thẻ gọn.
@@ -126,7 +126,7 @@ edges:
 | `show_all_ports` | `false` | Hiện cả cổng không có link/lưu lượng |
 | `legend` | `true` | Hiện chú thích màu |
 | `top` | `5` | Bảng "Đang dùng mạng nhiều nhất" dưới sơ đồ: thiết bị xếp theo tổng ↓+↑ (thanh tỉ lệ so với máy đứng đầu); `0` hoặc `false` để ẩn |
-| `warm_mbps`, `hot_mbps` | `10`, `50` | Ô cổng sáng cam khi tổng ↓+↑ vượt `warm_mbps`, nhấp nháy đỏ khi vượt `hot_mbps`; mọi ô cổng có thanh lưu lượng ở đáy, dài tỉ lệ thẳng theo ↓+↑ so với ô bận nhất đang hiện (phần ↓ màu cổng, phần ↑ màu hồng; `warm_mbps` là mức sàn của thang). Dây vào từng thiết bị dày lên theo lưu lượng |
+| `warm_mbps`, `hot_mbps` | `10`, `50` | Thẻ cổng sáng cam khi tổng ↓+↑ vượt `warm_mbps`, nhấp nháy đỏ khi vượt `hot_mbps`; thanh lưu lượng ở đáy mỗi thẻ dài tỉ lệ thẳng theo ↓+↑ so với ô bận nhất đang hiện (phần ↓ màu cổng, phần ↑ màu hồng; `warm_mbps` là mức sàn của thang). Đoạn cuối của dây vào mỗi thẻ thiết bị dày lên theo lưu lượng |
 | `motion` | `on` | `on`: hạt luôn chạy (hạt là thông tin lưu lượng); `auto`: dừng khi hệ điều hành bật giảm chuyển động (Windows tắt *Animation effects*); `off`: không bao giờ chạy |
 | `language` | theo HA | `vi` hoặc `en` |
 
@@ -144,7 +144,7 @@ edges:
 | `port_names` | Tên từng cổng: `"tên \| ip"`, `{ name, ip, icon, show, poe, optional }` (`poe: false` ẩn ⚡; `optional: true`: máy hay tắt, mất link không báo lỗi), hoặc `false` để ẩn. Không ghi tên thì card dùng thuộc tính `device` / `device_ip` của entity link (routeros_ha: LLDP neighbor hoặc comment DHCP lease), rồi tới comment của cổng |
 | `show_all_ports` | Như tuỳ chọn của card nhưng chỉ cho node này |
 | `brand` | Nhãn hãng trên thẻ (mặc định lấy từ device registry) |
-| `stats` | Dòng CPU, RAM, thời gian chạy, nhiệt độ và số cổng đang cấp PoE trên thẻ mẫu đầy đủ. Tự nhận theo tên entity của device; ghi đè bằng `{ cpu, ram, uptime, temp }`, `false` để tắt |
+| `stats` | Dòng CPU, RAM, thời gian chạy, nhiệt độ và số cổng đang cấp PoE (chỉ đếm cổng có ô trên thẻ) trên thẻ mẫu đầy đủ. Tự nhận theo tên entity của device; ghi đè bằng `{ cpu, ram, uptime, temp }`, `false` để tắt |
 | `model` | Model để chọn cách xếp cổng, ưu tiên hơn device registry. Không có cả hai thì thử `prefix` của adapter |
 | `faceplate` | `auto` (mặc định), `false` (thẻ này không có dải cổng) hoặc `{ rows, top, block, sfp }`: số hàng, `top: even` = cổng chẵn ở hàng trên, số cột mỗi cụm, phía đặt SFP (`left`/`right`) |
 | `expect_speed` | Tốc độ kỳ vọng (Mbps hoặc `1G`): cổng có link mà chậm hơn được viền vàng. Ghi đè từng cổng bằng `port_names: { ether5: { expect_speed: 100 } }`, `false` để bỏ |
