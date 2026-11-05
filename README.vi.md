@@ -35,6 +35,8 @@ Card Lovelace cho Home Assistant vẽ mạng LAN thành một cây sống:
 - **Đơn vị bất kỳ**: bit/s, kbit/s, Mbit/s, Gbit/s, B/s, kB/s, MB/s, KiB/s…
 - **Bấm vào switch** để mở cột thiết bị: chỉ hiện cổng có link hoặc có lưu lượng, ẩn cổng nối sang switch khác.
   Màu cổng theo tốc độ link, có chú thích ngay trong card.
+- **Khung chi tiết cổng**: bấm ô cổng để xem trạng thái, đầu kia của dây, thiết bị, IP, MAC, lưu lượng và số lần mất link, dùng được cả trên điện thoại.
+- **Thu nhánh**: nút `−` trên thẻ ẩn toàn bộ phía sau node, `+N` để mở lại; mỗi trình duyệt nhớ riêng.
 - **Hai mẫu hiển thị** (`detail`): Đầy đủ hiện từng cổng trên thẻ thiết bị, dây cắm thẳng vào đúng cổng; Đơn giản giữ
   thẻ gọn.
 - **Luôn vừa khung**: tự co theo bề ngang card khi tải và khi đổi cỡ; trên điện thoại (< 600 px) chuyển sang bố cục dọc.
@@ -124,7 +126,7 @@ edges:
 | `show_all_ports` | `false` | Hiện cả cổng không có link/lưu lượng |
 | `legend` | `true` | Hiện chú thích màu |
 | `top` | `5` | Bảng "Đang dùng mạng nhiều nhất" dưới sơ đồ: thiết bị xếp theo tổng ↓+↑ (thanh tỉ lệ so với máy đứng đầu); `0` hoặc `false` để ẩn |
-| `warm_mbps`, `hot_mbps` | `10`, `50` | Ô cổng sáng cam khi tổng ↓+↑ vượt `warm_mbps`, nhấp nháy đỏ khi vượt `hot_mbps`; mọi ô cổng có thanh mức dùng ở đáy |
+| `warm_mbps`, `hot_mbps` | `10`, `50` | Ô cổng sáng cam khi tổng ↓+↑ vượt `warm_mbps`, nhấp nháy đỏ khi vượt `hot_mbps`; mọi ô cổng có thanh lưu lượng ở đáy, dài tỉ lệ thẳng theo ↓+↑ so với ô bận nhất đang hiện (phần ↓ màu cổng, phần ↑ màu hồng; `warm_mbps` là mức sàn của thang). Dây vào từng thiết bị dày lên theo lưu lượng |
 | `motion` | `on` | `on`: hạt luôn chạy (hạt là thông tin lưu lượng); `auto`: dừng khi hệ điều hành bật giảm chuyển động (Windows tắt *Animation effects*); `off`: không bao giờ chạy |
 | `language` | theo HA | `vi` hoặc `en` |
 

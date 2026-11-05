@@ -18,6 +18,10 @@ import {
   portState,
   wireTraffic,
   deviceOfNode,
+  portPeer,
+  portRows,
+  branchNodes,
+  readPort,
   faceBox,
   deviceIp,
   deviceStats,
@@ -478,4 +482,63 @@ test("faceBox: dòng lưu lượng chỉ thêm chiều cao ở kiểu danh sách
   const flat = { ...it, rateH: 0 };
   assert.equal(faceBox(it, 300, 74, FACE_METRICS.touch, 0, 300).h - faceBox(flat, 300, 74, FACE_METRICS.touch, 0, 300).h, 17);
   assert.equal(faceBox(it, 180, 74).h, faceBox(flat, 180, 74).h);
+});
+
+const chainTopo = () =>
+  normalizeConfig({
+    nodes: [{ id: "r", name: "R", ports: [] }, { id: "s", name: "S", ports: [] }, { id: "t", name: "T", ports: [] }, { id: "m", name: "M" }],
+    edges: [
+      { from: "m", to: "r", to_port: ["ether1", "ether2"] },
+      { from: "r", to: "s", from_port: "sfp1", to_port: "sfp2" },
+      { from: "s", to: "t", from_port: "ether3", to_port: "ether1" },
+    ],
+  });
+const labels = { d_status: "st", d_up: "up", d_peer: "peer", d_device: "dev", d_ip: "ip", d_mac: "mac", d_traffic: "tr", d_downs: "downs", d_on: "on", poe: "PoE", disabled: "off", no_link: "none", slow_tip: () => "slow" };
+
+test("portPeer: cả hai chiều, nhiều cổng ghép theo vị trí, đầu kia không khai cổng thì chỉ tên node", () => {
+  const topo = chainTopo();
+  assert.equal(portPeer(topo, "r", "sfp1"), "S S2");
+  assert.equal(portPeer(topo, "s", "sfp2"), "R S1");
+  assert.equal(portPeer(topo, "r", "ether2"), "M");
+  assert.equal(portPeer(topo, "r", "ether9"), null);
+});
+
+test("portRows: bỏ mục trống, giữ số 0 lần mất link, cổng chưa link không có lưu lượng", () => {
+  const up = port("ether8", { linked: true, speedMbps: 1000, device: "NAS", deviceIp: "10.0.0.2", deviceMac: "AA", linkDowns: 0, rxBps: 1000, txBps: 2000 });
+  const rows = Object.fromEntries(portRows(up, {}, "S S2", labels, "en", "2.5G"));
+  assert.ok(rows.st.endsWith(" · slow"));
+  assert.equal(rows.downs, 0);
+  assert.equal(rows.dev, "NAS");
+  assert.equal(rows.peer, "S S2");
+  assert.ok(rows.tr.startsWith("↓"));
+  assert.deepEqual(portRows(port("ether1"), {}, null, labels, "en"), [["st", "none"]]);
+  assert.deepEqual(portRows(port("ether1", { disabled: true }), {}, null, labels, "en"), [["st", "off"]]);
+});
+
+test("readPort: đọc link_downs và device_mac; thiếu thuộc tính thì null", () => {
+  const states = { "binary_sensor.l": { state: "on", attributes: { link_downs: "67", device_mac: "AA:BB" } }, "binary_sensor.k": { state: "off", attributes: {} } };
+  const a = readPort(states, { name: "ether1", link: "binary_sensor.l" });
+  assert.equal(a.linkDowns, 67);
+  assert.equal(a.deviceMac, "AA:BB");
+  assert.equal(readPort(states, { name: "ether2", link: "binary_sensor.k" }).linkDowns, null);
+});
+
+test("branchNodes và buildTree: thu nhánh ẩn cả cây con, không tính dây của phần đã ẩn", () => {
+  const topo = chainTopo();
+  assert.deepEqual([...branchNodes(topo, "r")].sort(), ["s", "t"]);
+  assert.equal(branchNodes(topo, "t").size, 0);
+  const panels = new Map([
+    ["r", panelOf([port("sfp1")])],
+    ["s", panelOf([port("sfp2"), port("ether3")])],
+    ["t", panelOf([port("ether1")])],
+  ]);
+  const find = (it, id) => (it.id === id ? it : it.children.map((c) => find(c, id)).find(Boolean));
+  const open = buildTree(topo, new Set(), new Map(), panels)[0];
+  assert.ok(find(open, "t"));
+  assert.equal(find(open, "r").fan, 1);
+  const shut = buildTree(topo, new Set(), new Map(), panels, { collapsed: new Set(["r"]) })[0];
+  assert.equal(find(shut, "s"), undefined);
+  assert.equal(find(shut, "r").children.length, 0);
+  assert.equal(find(shut, "r").fan, undefined);
+  assert.doesNotThrow(() => fitLayout([shut], 1200, { layout: "horizontal" }));
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeConfig, topTalkers, topLimit, usagePct, heatLevel } from "../dist/lan-topo-card.js";
+import { normalizeConfig, topTalkers, topLimit, shareBar, heatLevel } from "../dist/lan-topo-card.js";
 
 const port = (name, tx, rx, extra = {}) => ({ name, linked: true, speedMbps: 1000, txBps: tx, rxBps: rx, ...extra });
 const topo = normalizeConfig({
@@ -25,12 +25,21 @@ test("topTalkers: xếp theo tổng ↓+↑, bỏ cổng nối, cổng ẩn, c�
   assert.equal(topTalkers(topo, portsByNode, { limit: 1 }).length, 1);
 });
 
-test("usagePct: log 10 kbps → 0, 1 Gbps → 100", () => {
-  assert.equal(usagePct(0), 0);
-  assert.equal(usagePct(1e4), 0);
-  assert.equal(usagePct(1e6), 40);
-  assert.equal(usagePct(1e9), 100);
-  assert.equal(usagePct(1e11), 100);
+test("shareBar: dài thẳng theo ↓+↑ so với ô bận nhất, tách phần ↓ / ↑", () => {
+  const peak = 775e6 + 9.5e6; // NAS 775 Mbps ↓ + 9,5 Mbps ↑
+  const sum = (b) => b.d + b.u;
+  assert.ok(Math.abs(sum(shareBar(775e6, 9.5e6, peak)) - 100) < 1e-9);
+  // PC 28 Mbps chỉ ~3,6% của NAS — thang log cũ cho 69% so với 94%.
+  assert.ok(Math.abs(sum(shareBar(27.8e6, 0.176e6, peak)) - (27.976e6 / peak) * 100) < 1e-9);
+  const cam = shareBar(0.165e6, 6.07e6, 62.35e6);
+  assert.ok(Math.abs(cam.u / cam.d - 6.07 / 0.165) < 1e-9); // phần ↑ lớn hơn ↓ đúng tỉ lệ
+  assert.ok(Math.abs(sum(cam) - 10) < 1e-9);
+  assert.equal(sum(shareBar(1e3, 0, peak)), 2); // có lưu lượng thì vẫn thấy một vệt
+  assert.deepEqual(shareBar(0, 0, peak), { d: 0, u: 0 });
+  assert.deepEqual(shareBar(5e3, 0, peak, { idle: 20e3 }), { d: 0, u: 0 });
+  // Cả mạng rảnh: sàn 10 Mbps giữ 500 kbps không thành thanh đầy.
+  assert.equal(sum(shareBar(0.5e6, 0, 0.5e6, { floor: 10e6 })), 5);
+  assert.equal(sum(shareBar(50e6, 0, 0)), 100); // peak thiếu thì không tràn quá 100%
 });
 
 test("heatLevel: ≥10 Mbps ấm, ≥50 Mbps nóng, tuỳ chỉnh được", () => {

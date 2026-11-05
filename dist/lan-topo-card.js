@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.7.2";
+export const VERSION = "0.8.0";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -107,6 +107,28 @@ export function flowLevel(bps, idleBps = 20e3) {
 export function flowWidth(bps, { min = 1.2, max = 7, perDecade = 1.1 } = {}) {
   if (!bps || bps <= 0) return min;
   return Math.min(max, Math.max(min, min + perDecade * Math.log10(bps / 1e5)));
+}
+
+/**
+ * Độ dày sợi ↓/↑ của dây tới thiết bị cuối: cùng thang log10 nhưng dốc hơn (1,4 px mỗi bậc ×10)
+ * để 5 · 30 · 800 Mbps nhìn ra khác nhau: 100 kbps ≈ 0,8 · 1 Mbps ≈ 2,2 · 10 Mbps ≈ 3,6 ·
+ * 100 Mbps ≈ 5 · 1 Gbps chạm trần `max`.
+ */
+export function leafFlowWidth(bps, max = 6) {
+  return flowWidth(bps, { min: 0.8, perDecade: 1.4, max });
+}
+
+/**
+ * Đoạn cuối của dây vào ô thiết bị (đoạn ngang sau góc bo cuối), nơi đủ chỗ vẽ sợi dày theo lưu
+ * lượng — phần còn lại của dây phải lọt khe 2 px giữa các ô cổng nên luôn mảnh. Null nếu quá ngắn.
+ */
+export function tailPath(pts, { skip = 10, minLen = 24 } = {}) {
+  if (!pts || pts.length < 2) return null;
+  const [ax, ay] = pts[pts.length - 2];
+  const [zx, zy] = pts[pts.length - 1];
+  if (ay !== zy || Math.abs(zx - ax) < minLen) return null;
+  const r = (n) => Math.round(n * 10) / 10;
+  return `M${r(ax + Math.sign(zx - ax) * skip)} ${r(zy)}H${r(zx)}`;
 }
 
 /** So sánh tự nhiên: ether2 < ether10 < sfp-sfpplus1. */
@@ -393,6 +415,8 @@ export function readPort(states, def) {
     // Thiết bị đang cắm (routeros_ha: LLDP neighbor / DHCP lease có comment) — tên tự động.
     device: linkSt?.attributes?.device || null,
     deviceIp: linkSt?.attributes?.device_ip || null,
+    deviceMac: linkSt?.attributes?.device_mac || null,
+    linkDowns: Number.isFinite(parseFloat(linkSt?.attributes?.link_downs)) ? parseFloat(linkSt.attributes.link_downs) : null,
     entity: def.info || def.rx || def.link || def.tx || null,
     entities: [def.link, def.rx, def.tx, def.poe, speedEntity ? def.speed : null].filter(Boolean),
   };
@@ -531,10 +555,19 @@ export function groupClients(clients, { by = "ap", sort = "name", ssid = null, b
 
 // ═══════════════════════════════ Ai đang dùng nhiều ═══════════════════════════════
 
-/** % thanh mức dùng theo log10: 10 kbps → 0, 1 Gbps → 100. */
-export function usagePct(bps) {
-  if (!bps || bps <= 1e4) return 0;
-  return Math.min(100, (Math.log10(bps / 1e4) / 5) * 100);
+/**
+ * Thanh lưu lượng ở đáy ô cổng: dài THẲNG theo tổng ↓+↑ so với `peak` (cổng bận nhất đang hiện) —
+ * thang log làm 7 Mbps và 775 Mbps dài gần bằng nhau. `floor` chặn dưới thang để lúc cả mạng rảnh
+ * vài trăm kbps không thành thanh đầy. Trả % bề ngang của phần ↓ và ↑; dưới `idle` thì rỗng, có
+ * lưu lượng thì tối thiểu 2% cho còn thấy.
+ */
+export function shareBar(down, up, peak, { floor = 0, idle = 0 } = {}) {
+  const d = Math.max(0, down || 0);
+  const u = Math.max(0, up || 0);
+  const total = d + u;
+  if (!total || total < idle) return { d: 0, u: 0 };
+  const pct = Math.max(2, (total / Math.max(peak || 0, floor, total)) * 100);
+  return { d: (d / total) * pct, u: (u / total) * pct };
 }
 
 /** Mức "nóng" của cổng theo tổng lưu lượng: 0 bình thường, 1 ≥ warm, 2 ≥ hot (Mbps). */
@@ -833,11 +866,14 @@ export function wireTraffic(edge, wire, wireCount, portsByNode, whole) {
  * Cây hiển thị: node + (nếu đang mở) lá cổng. Lá cổng đứng TRƯỚC node con để cột thiết bị
  * nằm sát switch, node con (switch tiếp theo) ở dưới.
  */
-export function buildTree(topo, expanded, portLeaves, panels = new Map(), { wires = "port" } = {}) {
+export function buildTree(topo, expanded, portLeaves, panels = new Map(), { wires = "port", collapsed = new Set() } = {}) {
   const plans = new Map();
   const lanes = new Map();
+  const hidden = new Set([...collapsed].flatMap((id) => [...branchNodes(topo, id)]));
+  const below = (id) => (collapsed.has(id) ? [] : topo.children.get(id) || []);
   if (wires !== "node") {
     for (const e of topo.edges) {
+      if (hidden.has(e.to)) continue;
       const plan = planWires(e, panels);
       if (!plan.length) continue;
       plans.set(e.key, plan);
@@ -857,18 +893,28 @@ export function buildTree(topo, expanded, portLeaves, panels = new Map(), { wire
       if (exits.has(p.name)) leaf.plug = true;
       kids.push(leaf);
     }
-    for (const e of topo.children.get(id) || []) kids.push(make(e.to, e));
+    for (const e of below(id)) kids.push(make(e.to, e));
     const it = { kind: "node", id, edge, key: id, children: kids };
     if (panels.has(id)) Object.assign(it, panels.get(id));
     if (edge && plans.has(edge.key)) it.wires = plans.get(edge.key);
     const count = (lanes.get(id) ?? 0) + plugged;
     if (count) it.lanes = count;
     if (plugged) it.plugged = plugged;
-    const fan = plugged + (topo.children.get(id) || []).reduce((n, e) => n + (plans.get(e.key)?.length ?? 0), 0);
+    const fan = plugged + below(id).reduce((n, e) => n + (plans.get(e.key)?.length ?? 0), 0);
     if (fan) it.fan = fan;
     return it;
   };
   return topo.roots.map((r) => make(r, null));
+}
+
+/** Mọi node nằm phía sau một node trong cây. */
+export function branchNodes(topo, id, seen = new Set()) {
+  for (const e of topo.children.get(id) || []) {
+    if (seen.has(e.to)) continue;
+    seen.add(e.to);
+    branchNodes(topo, e.to, seen);
+  }
+  return seen;
 }
 
 /**
@@ -1538,6 +1584,20 @@ const STRINGS = {
     uplink: "uplink",
     n_ports: (n) => `${n} cổng`,
     behind: (n) => `${n} phía sau`,
+    poe_n: (n) => `${n} cổng PoE`,
+    fold: "Thu nhánh",
+    unfold: "Mở nhánh",
+    d_status: "Trạng thái",
+    d_up: "Có link",
+    d_peer: "Nối tới",
+    d_device: "Thiết bị",
+    d_ip: "IP",
+    d_mac: "MAC",
+    d_traffic: "Lưu lượng",
+    d_downs: "Mất link từ lúc khởi động",
+    d_on: "Đang cấp",
+    d_more: "Mở chi tiết",
+    d_close: "Đóng",
     days: (n) => `${n} ngày`,
     hours: (n) => `${n} giờ`,
     detail_simple: "Đơn giản",
@@ -1577,6 +1637,20 @@ const STRINGS = {
     uplink: "uplink",
     n_ports: (n) => `${n} ports`,
     behind: (n) => `${n} behind`,
+    poe_n: (n) => `${n} PoE ports`,
+    fold: "Collapse branch",
+    unfold: "Expand branch",
+    d_status: "Status",
+    d_up: "Link up",
+    d_peer: "Connected to",
+    d_device: "Device",
+    d_ip: "IP",
+    d_mac: "MAC",
+    d_traffic: "Traffic",
+    d_downs: "Link drops since boot",
+    d_on: "Powering",
+    d_more: "More info",
+    d_close: "Close",
     days: (n) => `${n}d`,
     hours: (n) => `${n}h`,
     detail_simple: "Simple",
@@ -1604,6 +1678,37 @@ const STRINGS = {
 
 export function strings(lang) {
   return String(lang || "").toLowerCase().startsWith("vi") ? STRINGS.vi : STRINGS.en;
+}
+
+/** Đầu kia của dây cắm vào cổng: "CRS326 S1", hoặc chỉ tên node nếu đầu kia không khai cổng. */
+export function portPeer(topo, id, name) {
+  for (const e of topo.edges) {
+    const mine = e.from === id ? e.fromPorts : e.to === id ? e.toPorts : [];
+    const i = mine.indexOf(name);
+    if (i < 0) continue;
+    const theirs = e.from === id ? e.toPorts : e.fromPorts;
+    const other = topo.nodes.get(e.from === id ? e.to : e.from);
+    const port = theirs[i] ?? theirs[theirs.length - 1];
+    return port ? `${other.name} ${portLabel(port)}` : other.name;
+  }
+  return null;
+}
+
+/** Các dòng của khung chi tiết cổng: [nhãn, giá trị]; mục không có dữ liệu thì bỏ. */
+export function portRows(p, meta, peer, T, locale, expect) {
+  const want = parseLinkSpeed(meta.expect_speed ?? expect);
+  const slow = p.linked && want && p.speedMbps && p.speedMbps < want ? ` · ${T.slow_tip(speedLabel(want))}` : "";
+  const status = p.disabled ? T.disabled : p.linked ? `${speedLabel(p.speedMbps) || T.d_up}${slow}` : T.no_link;
+  return [
+    [T.d_status, status],
+    [T.d_peer, peer],
+    [T.d_device, meta.name || p.device || p.comment],
+    [T.d_ip, meta.ip || p.deviceIp],
+    [T.d_mac, p.deviceMac],
+    [T.d_traffic, p.linked ? `↓${formatRate(p.txBps, locale)} ↑${formatRate(p.rxBps, locale)}` : null],
+    [T.d_downs, p.linkDowns],
+    [T.poe, poeOn(p, meta) ? T.d_on : null],
+  ].filter(([, v]) => v !== null && v !== undefined && v !== "");
 }
 
 /** Tooltip của ô cổng: thiết bị, IP, tốc độ, lưu lượng. */
@@ -1806,7 +1911,14 @@ async function defineCard() {
 
   class LanTopoCard extends LanBaseCard {
     static get properties() {
-      return { hass: { attribute: false }, _config: { state: true }, _width: { state: true }, _expanded: { state: true } };
+      return {
+        hass: { attribute: false },
+        _config: { state: true },
+        _width: { state: true },
+        _expanded: { state: true },
+        _collapsed: { state: true },
+        _picked: { state: true },
+      };
     }
 
     static getStubConfig() {
@@ -1834,6 +1946,13 @@ async function defineCard() {
       } catch (_e) {
         this._detail = null;
       }
+      try {
+        const saved = JSON.parse(localStorage.getItem(this._foldKey(config)) || "[]");
+        this._collapsed = new Set((Array.isArray(saved) ? saved : []).filter((id) => topo.nodes.has(id)));
+      } catch (_e) {
+        this._collapsed = new Set();
+      }
+      this._picked = null;
       const motion = ["auto", "off"].includes(config.motion) ? config.motion : "on";
       this.setAttribute("motion", motion);
       this._config = config;
@@ -1933,11 +2052,12 @@ async function defineCard() {
           const stats = this._statsOf(id, node, device);
           Object.values(stats).forEach((e) => this._tracked.add(e));
           const sub = this._cardSub(node, device);
-          this._cardInfo.set(id, { device, stats, sub });
-          const hasStats = Object.keys(stats).length > 0;
+          const poe = ports.filter((p) => poeOn(p, node.portNames[p.name] || {})).length;
+          this._cardInfo.set(id, { device, stats, sub, poe });
+          const hasStats = Object.keys(stats).length > 0 || poe > 0;
           const lines = (sub ? 1 : 0) + 1 + (this._uplinkEdge(id) ? 1 : 0) + (hasStats ? 1 : 0);
           // Chữ trên thẻ không được cắt: ước lượng 6,4px mỗi ký tự, dòng số liệu đủ bốn mục cần khoảng 216px.
-          const minW = Math.min(300, 24 + Math.max(sub.length * 6.4, hasStats ? 216 : 0));
+          const minW = Math.min(300, 24 + Math.max(sub.length * 6.4, Object.keys(stats).length ? 216 : 0));
           const up = this._topo.edges.find((e) => e.to === id);
           const rateH = this._rateText(up, traffic, locale) ? 17 : 0;
           panels.set(id, { panel: portPanel(shown, spec), head: 34 + 17 * lines, rateH, minW });
@@ -1945,7 +2065,7 @@ async function defineCard() {
       }
       this._portsByNode = portsByNode;
 
-      const trees = buildTree(this._topo, this._expanded, leaves, panels, { wires: cfg.wires });
+      const trees = buildTree(this._topo, this._expanded, leaves, panels, { wires: cfg.wires, collapsed: this._collapsed });
       const width = this._width || 0;
       const lay = width
         ? fitLayout(trees, width, {
@@ -1958,6 +2078,8 @@ async function defineCard() {
         : null;
       this._lay = lay;
       this._traffic = traffic;
+      // Thang chung của thanh lưu lượng: ô thiết bị bận nhất đang hiện trên sơ đồ.
+      this._portPeak = Math.max(0, ...(lay?.boxes || []).filter((b) => b.kind === "port").map((b) => (b.port.txBps ?? 0) + (b.port.rxBps ?? 0)));
       const height = lay ? lay.height * lay.scale : 0;
       this._lastHeight = height;
 
@@ -1987,6 +2109,7 @@ async function defineCard() {
                 </div>`
               : ""}
           </div>
+          ${this._renderPortDetail(portsByNode, T, locale)}
           ${topLimit(cfg.top) ? this._renderTop(portsByNode, T, locale) : ""}
           ${cfg.legend === false ? "" : this._renderLegend(T)}
         </ha-card>
@@ -2026,14 +2149,56 @@ async function defineCard() {
           <span class="name">${node.name}</span>
           ${count ? html`<span class="badge">×${count}</span>` : ""}
           ${rich ? html`<span class="dot ${online ? "ok" : "bad"}"></span>` : ""}
+          ${this._renderFold(b.id, T)}
           ${expandable ? html`<ha-icon class="chev" .icon=${expanded ? "mdi:chevron-left" : "mdi:chevron-right"}></ha-icon>` : ""}
         </div>
         ${sub ? html`<div class="line">${sub}</div>` : ""}
         ${uplink ? html`<div class="line up">${uplink}</div>` : ""}
         ${rich && rate ? html`<div class="line">${rate}</div>` : ""}
-        ${rich ? this._renderStats(rich.stats, T) : ""}
+        ${rich ? this._renderStats(rich, T) : ""}
         ${status.length ? html`<div class="line st">${status.join(" · ")}</div>` : ""}
         ${b.face ? this._renderFace(b, node, lay, T, locale) : ""}
+      </div>`;
+    }
+
+    /** Nút thu nhánh: "−" khi đang mở, "+N" (số node đang ẩn) khi đã thu. Không đụng tới bấm thẻ. */
+    _renderFold(id, T) {
+      const n = branchNodes(this._topo, id).size;
+      // Internet, modem là thẻ nhỏ không có cổng: thêm nút thì cắt mất tên.
+      if (!n || !this._topo.nodes.get(id).ports) return "";
+      const shut = this._collapsed.has(id);
+      const label = shut ? T.unfold : T.fold;
+      return html`<button
+        type="button"
+        class="fold"
+        title=${label}
+        aria-label=${label}
+        aria-expanded=${shut ? "false" : "true"}
+        @click=${(e) => {
+          e.stopPropagation();
+          this._toggleFold(id);
+        }}
+      >
+        ${shut ? `+${n}` : "−"}
+      </button>`;
+    }
+
+    /** Khung chi tiết cổng đang chọn, nằm dưới sơ đồ nên dùng được cả trên điện thoại (không có rê chuột). */
+    _renderPortDetail(portsByNode, T, locale) {
+      const pick = this._picked;
+      const node = pick && this._topo.nodes.get(pick.id);
+      const p = pick && portsByNode.get(pick.id)?.find((x) => x.name === pick.name);
+      if (!node || !p) return "";
+      const meta = node.portNames[p.name] || {};
+      const rows = portRows(p, meta, portPeer(this._topo, pick.id, p.name), T, locale, node.expect_speed);
+      return html`<div class="pdetail" style="--c:${speedColor(p.speedMbps, p.linked !== false)}">
+        <div class="pdhead">
+          <span class="pdchip">${portLabel(p.name)}</span>
+          <span class="pdname">${node.name} · ${p.name}</span>
+          ${p.entity ? html`<button type="button" class="pdbtn" @click=${() => this._moreInfo(p.entity)}>${T.d_more}</button>` : ""}
+          <button type="button" class="pdbtn close" aria-label=${T.d_close} title=${T.d_close} @click=${() => (this._picked = null)}>×</button>
+        </div>
+        <div class="pdrows">${rows.map(([k, v]) => html`<div class="pdrow"><span>${k}</span><b>${v}</b></div>`)}</div>
       </div>`;
     }
 
@@ -2063,7 +2228,7 @@ async function defineCard() {
     }
 
     /** Dòng CPU · RAM · thời gian chạy · nhiệt độ. Cảm biến lỗi thì bỏ mục đó. */
-    _renderStats(stats, T) {
+    _renderStats({ stats, poe }, T) {
       const val = (id) => {
         const st = id ? this.hass.states[id] : undefined;
         const n = st ? parseFloat(st.state) : NaN;
@@ -2078,6 +2243,7 @@ async function defineCard() {
       if (ram !== null) items.push(html`<span>RAM <b>${ram}%</b></span>`);
       if (up) items.push(html`<span><b>${up.days !== undefined ? T.days(up.days) : T.hours(up.hours)}</b></span>`);
       if (temp !== null) items.push(html`<span>${temp} °C</span>`);
+      if (poe) items.push(html`<span>${T.poe_n(poe)}</span>`);
       return items.length ? html`<div class="line stats">${items}</div>` : "";
     }
 
@@ -2096,7 +2262,7 @@ async function defineCard() {
       return `↑ ${mine} → ${parent.name}${theirs}${speed ? ` · ${speed}` : ""}`;
     }
 
-    /** Dải cổng ở đáy thẻ. Bấm ô mở more-info của cổng, không đóng/mở node. */
+    /** Dải cổng ở đáy thẻ. Bấm ô mở khung chi tiết cổng, không đóng/mở node. */
     _renderFace(b, node, lay, T, locale) {
       const f = b.face;
       const linkPorts = linkPortsOf(this._topo, b.id);
@@ -2107,14 +2273,15 @@ async function defineCard() {
           const meta = node.portNames[p.name] || {};
           const state = portState(p, { meta, uplink: uplinks.has(p.name), linkPort: linkPorts.has(p.name), expect: node.expect_speed });
           const hot = heatLevel((p.txBps ?? 0) + (p.rxBps ?? 0), this._heatOpts) === 2 ? "hot" : "";
+          const picked = this._picked?.id === b.id && this._picked.name === p.name ? "picked" : "";
           return html`<div
-            class="pt ${state} ${hot}"
+            class="pt ${state} ${hot} ${picked}"
             style="left:${c.x}px;top:${c.y}px;width:${c.w}px;height:${c.h}px;--c:${speedColor(p.speedMbps, true)}"
             title=${portTip(node.name, p, meta, T, locale, node.expect_speed)}
             data-w=${lay.wireOf?.get(`${b.id}/${p.name}`) ?? ""}
             @click=${(e) => {
               e.stopPropagation();
-              this._moreInfo(p.entity);
+              this._pickPort(b.id, p.name);
             }}
           >
             ${f.label ? portLabel(p.name) : ""}
@@ -2153,11 +2320,16 @@ async function defineCard() {
       const sub = [label !== p.name ? p.name : null, ip].filter(Boolean).join(" · ");
       const total = (p.txBps ?? 0) + (p.rxBps ?? 0);
       const heat = heatLevel(total, this._heatOpts);
+      const picked = this._picked?.id === b.nodeId && this._picked.name === p.name ? "picked" : "";
+      const bar = shareBar(p.txBps, p.rxBps, this._portPeak, { floor: this._heatOpts.warmMbps * 1e6, idle: this._idleBps });
+      const barW = bar.d + bar.u;
+      // --s: chỗ chuyển màu ↓ → ↑, tính theo bề ngang của chính thanh.
+      const barS = barW ? (bar.d / barW) * 100 : 0;
       return html`<div
-        class="port ${p.linked ? "" : "down"} ${p.entity ? "clickable" : ""} heat${heat}"
-        style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;--c:${color};--u:${usagePct(total).toFixed(1)}%"
+        class="port clickable ${p.linked ? "" : "down"} heat${heat} ${picked}"
+        style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;--c:${color};--u:${barW.toFixed(1)}%;--s:${barS.toFixed(1)}%"
         data-w=${lay.wireOf?.get(`${b.nodeId}/${p.name}`) ?? ""}
-        @click=${() => this._moreInfo(p.entity)}
+        @click=${() => this._pickPort(b.nodeId, p.name)}
       >
         <div class="pmain">
           ${meta.icon ? html`<ha-icon .icon=${meta.icon}></ha-icon>` : ""}
@@ -2208,6 +2380,32 @@ async function defineCard() {
         /* chế độ riêng tư / chặn lưu trữ: chỉ nhớ trong phiên */
       }
       this.requestUpdate();
+    }
+
+    _foldKey(config = this._config) {
+      return `lan-topo-card:fold:${config.title || "default"}`;
+    }
+
+    /** Thu/mở phần phía sau node. Khung chi tiết của cổng vừa bị ẩn thì đóng luôn. */
+    _toggleFold(id) {
+      const next = new Set(this._collapsed);
+      if (!next.delete(id)) next.add(id);
+      this._collapsed = next;
+      if (this._picked && next.has(id) && branchNodes(this._topo, id).has(this._picked.id)) this._picked = null;
+      try {
+        localStorage.setItem(this._foldKey(), JSON.stringify([...next]));
+      } catch (_e) {
+        /* chế độ riêng tư / chặn lưu trữ: chỉ nhớ trong phiên */
+      }
+    }
+
+    /** Chọn cổng để xem chi tiết; chọn lại cổng đang mở thì đóng. */
+    _pickPort(id, name) {
+      const same = this._picked?.id === id && this._picked.name === name;
+      this._picked = same ? null : { id, name };
+      if (same) return;
+      // Sơ đồ dài trên điện thoại: khung nằm dưới cùng, không cuộn tới thì bấm như không có gì xảy ra.
+      this.updateComplete.then(() => this.renderRoot.querySelector(".pdetail")?.scrollIntoView({ block: "nearest" }));
     }
 
     _detailKey(config = this._config) {
@@ -2341,10 +2539,11 @@ async function defineCard() {
           w = 1.6;
         }
         // Ống mờ = dung lượng link; 2 sợi ↓/↑ dày theo lưu lượng thật (log), tách 2 bên ống.
-        // Dây vào cổng mảnh hơn: phải lọt khe 2 px giữa các ô.
-        const cap = l.wire ? 1.6 : l.kind === "node" ? 5.6 : 4;
-        const wd = flowWidth(down, { max: cap });
-        const wu = flowWidth(up, { max: cap });
+        // Dây vào cổng mảnh hơn: phải lọt khe 2 px giữa các ô (đoạn cuối vào thiết bị vẽ dày riêng ở dưới).
+        const leaf = l.kind === "port" && !l.wire;
+        const cap = l.wire ? 1.6 : l.kind === "node" ? 5.6 : 4.5;
+        const wd = leaf ? leafFlowWidth(down, cap) : flowWidth(down, { max: cap });
+        const wu = leaf ? leafFlowWidth(up, cap) : flowWidth(up, { max: cap });
         const base = Math.max(w, wd + wu + 1);
         const off = (wd + wu) / 4 + 0.6;
         const upright = lay.mode === "vertical" || l.dir === "v" || l.dir === "list";
@@ -2368,6 +2567,16 @@ async function defineCard() {
           want.set(`${l.key}|p`, { d: l.plugs.map(([x, y]) => `M${r1(x)} ${r1(y)}h0`).join(""), cls: "plug", style: `--c:${color}`, wk });
           // Vùng rê chuột chỉ ở đoạn ngoài thẻ, không che các ô cổng.
           if (l.pts.length > 3) want.set(`${l.key}|h`, { d: linkPath({ pts: l.pts.slice(1, -1) }), cls: "hit", style: "", wk });
+          // Đoạn ngang cuối vào ô thiết bị: đủ chỗ nên 2 sợi ↓/↑ dày theo lưu lượng như dây mẫu đơn giản.
+          const tail = l.wire.leaf ? tailPath(l.pts) : null;
+          if (tail) {
+            const td = leafFlowWidth(down);
+            const tu = leafFlowWidth(up);
+            const toff = (td + tu) / 4 + 0.6;
+            want.set(`${l.key}|tb`, { d: tail, cls: `base tail ${hot}`, style: `--c:${color};--w:${r1(td + tu + 1)}px`, wk });
+            want.set(`${l.key}|td`, { d: tail, cls: `flow down lv${flowLevel(down, this._idleBps)}`, style: `--c:${color};--fw:${r1(td)}px`, tr: `translate(0 ${r1(-toff)})`, wk });
+            want.set(`${l.key}|tu`, { d: tail, cls: `flow up lv${flowLevel(up, this._idleBps)}`, style: `--c:${color};--fw:${r1(tu)}px`, tr: `translate(0 ${r1(toff)})`, wk });
+          }
         }
       }
       const existing = new Map();
@@ -2605,8 +2814,102 @@ async function defineCard() {
           background: #22c55e;
           box-shadow: 0 0 6px #22c55e;
         }
-        .dot + .chev {
+        .dot + .chev,
+        .dot + .fold,
+        .fold + .chev {
           margin-left: 2px;
+        }
+        .fold {
+          flex: none;
+          margin-left: auto;
+          min-width: 26px;
+          height: 22px;
+          padding: 0 4px;
+          border: 1px solid var(--ltc-border);
+          border-radius: 6px;
+          background: rgba(255, 255, 255, 0.06);
+          color: var(--ltc-fg);
+          font: inherit;
+          font-size: 0.74rem;
+          line-height: 1;
+          cursor: pointer;
+        }
+        .fold:hover {
+          background: rgba(255, 255, 255, 0.14);
+        }
+        .pt.picked,
+        .port.picked {
+          outline: 2px solid #fff;
+          outline-offset: 1px;
+          z-index: 1;
+        }
+        .pdetail {
+          margin: 8px 16px 2px;
+          padding: 10px 12px;
+          border: 1px solid var(--ltc-border);
+          border-left: 3px solid var(--c);
+          border-radius: 10px;
+          background: rgba(255, 255, 255, 0.04);
+        }
+        .pdhead {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+        }
+        .pdchip {
+          flex: none;
+          padding: 1px 6px;
+          border-radius: 5px;
+          background: var(--c);
+          color: #06101f;
+          font-size: 0.74rem;
+          font-weight: 700;
+        }
+        .pdname {
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 0.86rem;
+          font-weight: 600;
+        }
+        .pdbtn {
+          flex: none;
+          min-height: 28px;
+          padding: 0 10px;
+          border: 1px solid var(--ltc-border);
+          border-radius: 8px;
+          background: transparent;
+          color: var(--ltc-fg);
+          font: inherit;
+          font-size: 0.74rem;
+          cursor: pointer;
+        }
+        .pdbtn.close {
+          min-width: 28px;
+          padding: 0;
+          font-size: 1rem;
+        }
+        .pdrows {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+          gap: 4px 16px;
+          margin-top: 8px;
+        }
+        .pdrow {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          font-size: 0.78rem;
+          color: var(--ltc-dim);
+        }
+        .pdrow b {
+          color: var(--ltc-fg);
+          font-weight: 600;
+          text-align: right;
+          overflow-wrap: anywhere;
         }
         .pface {
           position: absolute;
@@ -2702,7 +3005,7 @@ async function defineCard() {
         .port.down {
           opacity: 0.7;
         }
-        /* thanh mức dùng ở đáy ô cổng (log: 10 kbps → 0, 1 Gbps → 100%) */
+        /* thanh lưu lượng ở đáy ô cổng: dài thẳng theo ↓+↑ so với ô bận nhất; phần ↓ màu cổng, phần ↑ màu tải lên */
         .port::after {
           content: "";
           position: absolute;
@@ -2710,8 +3013,8 @@ async function defineCard() {
           bottom: 0;
           height: 3px;
           width: var(--u, 0%);
-          background: linear-gradient(90deg, #22d3ee, #a78bfa, #f472b6);
-          box-shadow: 0 0 6px #a78bfa;
+          background: linear-gradient(90deg, var(--c) var(--s, 50%), var(--ltc-up) var(--s, 50%));
+          box-shadow: 0 0 6px color-mix(in srgb, var(--c) 60%, transparent);
           border-radius: 0 2px 2px 0;
           transition: width 0.6s;
         }
