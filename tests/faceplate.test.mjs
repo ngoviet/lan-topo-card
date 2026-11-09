@@ -182,6 +182,41 @@ for (const [name, make] of [
   });
 }
 
+for (const [name, make] of [
+  ["ngang", () => routeWires(layoutHorizontal(tree(), LAYOUT, { chain: "stack" }))],
+  ["cây dọc", () => routeWires(layoutDown(tree()))],
+]) {
+  test(`routeWires (${name}): phần dây ngoài thẻ dày hết cỡ vẫn không đè dây bên cạnh, không lấn vào thẻ`, () => {
+    const lay = make();
+    const wires = lay.links.filter((l) => l.wire);
+    const segs = wires.flatMap((l) =>
+      l.wire.outer.slice(1).map((q, i) => ({ key: l.key, room: l.wire.room, p: l.wire.outer[i], q })),
+    );
+    for (const s of segs) {
+      const [[ax, ay], [bx, by]] = [s.p, s.q];
+      // Nửa bề rộng dây dày nhất không chạm vào thẻ nào (trừ điểm đầu/cuối nằm đúng mép thẻ).
+      const half = s.room / 2;
+      for (const b of nodeBoxes(lay)) {
+        const hit = Math.min(ax, bx) - half < b.x + b.w && Math.max(ax, bx) + half > b.x && Math.min(ay, by) < b.y + b.h - 0.5 && Math.max(ay, by) > b.y + 0.5;
+        const horiz = ay === by;
+        assert.ok(!hit || !horiz || ay < b.y || ay > b.y + b.h, `${s.key}: đoạn ngang lấn vào thẻ ${b.id}`);
+      }
+      for (const o of segs) {
+        if (o.key === s.key) continue;
+        const sameAxis = (ay === by && o.p[1] === o.q[1]) || (ax === bx && o.p[0] === o.q[0]);
+        if (!sameAxis) continue;
+        const horiz = ay === by;
+        const [lo1, hi1] = horiz ? [Math.min(ax, bx), Math.max(ax, bx)] : [Math.min(ay, by), Math.max(ay, by)];
+        const [lo2, hi2] = horiz ? [Math.min(o.p[0], o.q[0]), Math.max(o.p[0], o.q[0])] : [Math.min(o.p[1], o.q[1]), Math.max(o.p[1], o.q[1])];
+        // Bỏ phần bo góc 8 px ở hai đầu đoạn: chồng lên nhau thật sự mới tính.
+        if (Math.min(hi1, hi2) - Math.max(lo1, lo2) <= 16) continue;
+        const gap = horiz ? Math.abs(ay - o.p[1]) : Math.abs(ax - o.p[0]);
+        assert.ok(gap >= Math.min(s.room, o.room) - 1e-9, `${s.key} và ${o.key} chỉ cách ${gap}px`);
+      }
+    }
+  });
+}
+
 test("routeWires: dây vào cổng hàng trên chạy theo khe, không đè ô hàng dưới", () => {
   const lay = routeWires(layoutHorizontal(tree(), LAYOUT, { chain: "stack" }));
   const ccr = lay.boxes.find((b) => b.id === "ccr");

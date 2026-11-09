@@ -126,7 +126,7 @@ edges:
 | `show_all_ports` | `false` | Hiện cả cổng không có link/lưu lượng |
 | `legend` | `true` | Hiện chú thích màu |
 | `top` | `5` | Bảng "Đang dùng mạng nhiều nhất" dưới sơ đồ: thiết bị xếp theo tổng ↓+↑ (thanh tỉ lệ so với máy đứng đầu); `0` hoặc `false` để ẩn |
-| `warm_mbps`, `hot_mbps` | `10`, `50` | Thẻ cổng sáng cam khi tổng ↓+↑ vượt `warm_mbps`, nhấp nháy đỏ khi vượt `hot_mbps`; thanh lưu lượng ở đáy mỗi thẻ dài tỉ lệ thẳng theo ↓+↑ so với ô bận nhất đang hiện (phần ↓ màu cổng, phần ↑ màu hồng; `warm_mbps` là mức sàn của thang). Đoạn cuối của dây vào mỗi thẻ thiết bị dày lên theo lưu lượng |
+| `warm_mbps`, `hot_mbps` | `10`, `50` | Thẻ cổng sáng cam khi tổng ↓+↑ vượt `warm_mbps`, nhấp nháy đỏ khi vượt `hot_mbps`; thanh lưu lượng ở đáy mỗi thẻ dài tỉ lệ thẳng theo ↓+↑ so với ô bận nhất đang hiện (phần ↓ màu cổng, phần ↑ màu hồng; `warm_mbps` là mức sàn của thang). Mỗi dây gồm 2 sợi ↓ và ↑, mỗi sợi dày theo lưu lượng của chiều đó (thang log, 100 kbps → mảnh nhất, 1 Gbps → dày nhất) trên suốt phần chạy ngoài thẻ; chỉ đoạn ngắn trong thẻ, đi giữa các ô cổng, là luôn mảnh |
 | `motion` | `on` | `on`: hạt luôn chạy (hạt là thông tin lưu lượng); `auto`: dừng khi hệ điều hành bật giảm chuyển động (Windows tắt *Animation effects*); `off`: không bao giờ chạy |
 | `language` | theo HA | `vi` hoặc `en` |
 

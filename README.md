@@ -128,7 +128,7 @@ edges:
 | `show_all_ports` | `false` | Also list ports without link/traffic |
 | `legend` | `true` | Show the color legend |
 | `top` | `5` | "Top talkers" table under the diagram: devices ranked by ↓+↑ traffic (bars proportional to the top device); `0` or `false` hides it |
-| `warm_mbps`, `hot_mbps` | `10`, `50` | Port leaf cards glow amber above `warm_mbps` and pulse red above `hot_mbps` (total ↓+↑); each of them also has a traffic bar at the bottom, its length linear to ↓+↑ against the busiest port shown (↓ part in the port color, ↑ part in pink; `warm_mbps` is the floor of the scale). The last stretch of the wire into each device card gets thicker with its traffic |
+| `warm_mbps`, `hot_mbps` | `10`, `50` | Port leaf cards glow amber above `warm_mbps` and pulse red above `hot_mbps` (total ↓+↑); each of them also has a traffic bar at the bottom, its length linear to ↓+↑ against the busiest port shown (↓ part in the port color, ↑ part in pink; `warm_mbps` is the floor of the scale). Every wire is two strands, ↓ and ↑, each thicker with that direction's traffic (log scale, 100 kbps → thinnest, 1 Gbps → thickest), along its whole run outside the cards; only the short piece inside a card, between the port cells, stays thin |
 | `motion` | `on` | `on`: flow dots always move (they carry information); `auto`: stop when the OS asks for reduced motion (Windows *Animation effects* off); `off`: never move |
 | `language` | HA language | `vi` or `en` |
 
