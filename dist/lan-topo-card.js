@@ -1785,7 +1785,6 @@ async function defineCard() {
     }
     .title {
       font-weight: 600;
-      text-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
     }
     .legend i {
       display: inline-block;
@@ -1793,7 +1792,6 @@ async function defineCard() {
       height: 10px;
       border-radius: 3px;
       background: var(--c);
-      box-shadow: 0 0 6px var(--c);
       margin-right: 5px;
       vertical-align: -1px;
     }
@@ -1830,7 +1828,7 @@ async function defineCard() {
       align-items: center;
       justify-content: center;
       gap: 1px;
-      font-size: 0.72rem;
+      font-size: 0.8rem;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
       cursor: pointer;
@@ -1841,7 +1839,6 @@ async function defineCard() {
     .pt.on {
       background: color-mix(in srgb, var(--c) 78%, #0a1122);
       color: #06101f;
-      box-shadow: 0 0 6px color-mix(in srgb, var(--c) 45%, transparent);
     }
     .pt.on.busy,
     .pt.on.hot {
@@ -2615,7 +2612,7 @@ async function defineCard() {
     static get styles() {
       return [BASE_STYLES, css`
         ha-card {
-          box-shadow: inset 0 0 28px rgba(56, 189, 248, 0.07), 0 0 18px rgba(56, 189, 248, 0.06);
+          box-shadow: inset 0 0 28px rgba(56, 189, 248, 0.07);
         }
         .head {
           display: flex;
@@ -2760,8 +2757,7 @@ async function defineCard() {
         .node {
           border-radius: 14px;
           border: 1px solid color-mix(in srgb, var(--c) 60%, transparent);
-          box-shadow: 0 0 14px color-mix(in srgb, var(--c) 30%, transparent),
-            inset 0 0 14px color-mix(in srgb, var(--c) 12%, transparent);
+          box-shadow: inset 0 0 14px color-mix(in srgb, var(--c) 12%, transparent);
           padding: 8px 10px;
           display: flex;
           flex-direction: column;
@@ -2772,8 +2768,7 @@ async function defineCard() {
         .node.stack {
           overflow: visible;
           box-shadow: 5px -5px 0 -1px color-mix(in srgb, var(--c) 35%, #0a1122),
-            10px -10px 0 -2px color-mix(in srgb, var(--c) 20%, #0a1122),
-            0 0 14px color-mix(in srgb, var(--c) 30%, transparent);
+            10px -10px 0 -2px color-mix(in srgb, var(--c) 20%, #0a1122);
         }
         .node.expanded {
           border-color: var(--c);
@@ -2808,7 +2803,7 @@ async function defineCard() {
           border-radius: 4px;
           background: var(--c);
           color: #06101f;
-          font-size: 0.66rem;
+          font-size: 0.8rem;
           font-weight: 700;
           line-height: 16px;
         }
@@ -2822,7 +2817,6 @@ async function defineCard() {
         }
         .dot.ok {
           background: #22c55e;
-          box-shadow: 0 0 6px #22c55e;
         }
         .dot + .chev,
         .dot + .fold,
@@ -2840,7 +2834,7 @@ async function defineCard() {
           background: rgba(255, 255, 255, 0.06);
           color: var(--ltc-fg);
           font: inherit;
-          font-size: 0.74rem;
+          font-size: 0.8rem;
           line-height: 1;
           cursor: pointer;
         }
@@ -2856,8 +2850,7 @@ async function defineCard() {
         .pdetail {
           margin: 8px 16px 2px;
           padding: 10px 12px;
-          border: 1px solid var(--ltc-border);
-          border-left: 3px solid var(--c);
+          border: 1px solid color-mix(in srgb, var(--c) 55%, var(--ltc-border));
           border-radius: 10px;
           background: rgba(255, 255, 255, 0.04);
         }
@@ -2873,7 +2866,7 @@ async function defineCard() {
           border-radius: 5px;
           background: var(--c);
           color: #06101f;
-          font-size: 0.74rem;
+          font-size: 0.8rem;
           font-weight: 700;
         }
         .pdname {
@@ -2894,7 +2887,7 @@ async function defineCard() {
           background: transparent;
           color: var(--ltc-fg);
           font: inherit;
-          font-size: 0.74rem;
+          font-size: 0.8rem;
           cursor: pointer;
         }
         .pdbtn.close {
@@ -2912,7 +2905,7 @@ async function defineCard() {
           display: flex;
           justify-content: space-between;
           gap: 10px;
-          font-size: 0.78rem;
+          font-size: 0.8rem;
           color: var(--ltc-dim);
         }
         .pdrow b {
@@ -2972,7 +2965,6 @@ async function defineCard() {
         ha-icon {
           --mdc-icon-size: 18px;
           color: var(--c);
-          filter: drop-shadow(0 0 4px var(--c));
           flex: none;
         }
         .name,
@@ -2982,7 +2974,7 @@ async function defineCard() {
           min-width: 0;
         }
         .badge {
-          font-size: 0.72rem;
+          font-size: 0.8rem;
           padding: 0 6px;
           border-radius: 8px;
           background: color-mix(in srgb, var(--c) 22%, transparent);
@@ -2994,7 +2986,7 @@ async function defineCard() {
           opacity: 0.8;
         }
         .line {
-          font-size: 0.76rem;
+          font-size: 0.8rem;
           color: var(--ltc-dim);
           white-space: nowrap;
           overflow: hidden;
@@ -3002,15 +2994,13 @@ async function defineCard() {
         }
         .port {
           border-radius: 10px;
-          border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
-          border-left: 4px solid var(--c);
-          box-shadow: 0 0 10px color-mix(in srgb, var(--c) 22%, transparent);
+          border: 1px solid color-mix(in srgb, var(--c) 60%, transparent);
           padding: 3px 8px;
           display: grid;
           grid-template-columns: minmax(0, 1fr) auto;
           align-content: center;
           column-gap: 6px;
-          font-size: 0.78rem;
+          font-size: 0.8rem;
         }
         .port.down {
           opacity: 0.7;
@@ -3024,7 +3014,6 @@ async function defineCard() {
           height: 3px;
           width: var(--u, 0%);
           background: linear-gradient(90deg, var(--c) var(--s, 50%), var(--ltc-up) var(--s, 50%));
-          box-shadow: 0 0 6px color-mix(in srgb, var(--c) 60%, transparent);
           border-radius: 0 2px 2px 0;
           transition: width 0.6s;
         }
@@ -3037,7 +3026,7 @@ async function defineCard() {
         .port.heat1 .prate,
         .port.heat2 .prate {
           font-weight: 700;
-          font-size: 0.76rem;
+          font-size: 0.8rem;
         }
         .port.heat2 {
           border-top-color: #fb7185;
@@ -3089,7 +3078,7 @@ async function defineCard() {
           border-radius: 50%;
           display: grid;
           place-items: center;
-          font-size: 0.72rem;
+          font-size: 0.8rem;
           font-weight: 700;
           background: rgba(255, 255, 255, 0.08);
         }
@@ -3122,7 +3111,7 @@ async function defineCard() {
           --c: #94a3b8;
         }
         .tname .w {
-          font-size: 0.68rem;
+          font-size: 0.8rem;
           color: var(--ltc-dim);
         }
         .tbar {
@@ -3139,18 +3128,16 @@ async function defineCard() {
         }
         .tbar i.d {
           background: #38bdf8;
-          box-shadow: 0 0 6px #38bdf8;
         }
         .tbar i.u {
           background: var(--ltc-up);
-          box-shadow: 0 0 6px var(--ltc-up);
         }
         .tval {
           display: flex;
           justify-content: flex-end;
           min-width: 13.5em; /* cột số cố định → các thanh thẳng hàng, so độ dài chính xác */
           gap: 8px;
-          font-size: 0.74rem;
+          font-size: 0.8rem;
           font-variant-numeric: tabular-nums;
           white-space: nowrap;
         }
@@ -3161,7 +3148,7 @@ async function defineCard() {
           color: var(--ltc-up);
         }
         .tnone {
-          font-size: 0.76rem;
+          font-size: 0.8rem;
           color: var(--ltc-dim);
         }
         /* Khổ hẹp: hàng 1 = hạng | tên | số, hàng 2 = thanh trải dưới tên + số (đặt ô tường minh,
@@ -3197,7 +3184,7 @@ async function defineCard() {
         }
         .port .speed {
           flex: none;
-          font-size: 0.62rem;
+          font-size: 0.8rem;
           font-weight: 600;
           line-height: 1;
           padding: 2px 4px;
@@ -3220,13 +3207,13 @@ async function defineCard() {
         }
         .psub {
           color: var(--ltc-dim);
-          font-size: 0.7rem;
+          font-size: 0.8rem;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
         }
         .prate {
-          font-size: 0.7rem;
+          font-size: 0.8rem;
           text-align: right;
           white-space: nowrap;
           color: var(--c);
@@ -3243,7 +3230,7 @@ async function defineCard() {
           display: flex;
           flex-direction: column;
           align-items: center;
-          font-size: 0.68rem;
+          font-size: 0.8rem;
           line-height: 1.25;
           padding: 2px 6px;
           border-radius: 8px;
@@ -3295,7 +3282,7 @@ async function defineCard() {
         }
         .vbtn {
           font: inherit;
-          font-size: 0.72rem;
+          font-size: 0.8rem;
           display: inline-flex;
           align-items: center;
           gap: 4px;
@@ -3314,7 +3301,6 @@ async function defineCard() {
         .vbtn.on {
           background: rgba(34, 211, 238, 0.16);
           color: #67e8f9;
-          box-shadow: 0 0 8px rgba(34, 211, 238, 0.35);
         }
         /* 7 kiểu xem: chỉ nút đang chọn hiện chữ (tên đầy đủ ở tooltip), card hẹp chỉ icon. */
         .vbtn:not(.on) span,
@@ -3348,7 +3334,7 @@ async function defineCard() {
           align-items: center;
           gap: 4px 12px;
           padding: 6px 16px 14px;
-          font-size: 0.74rem;
+          font-size: 0.8rem;
           color: var(--ltc-dim);
         }
         .legend .sep {
@@ -3472,7 +3458,7 @@ async function defineCard() {
         }
         .dsub {
           color: var(--ltc-dim);
-          font-size: 0.74rem;
+          font-size: 0.8rem;
         }
         .ports {
           display: flex;
@@ -3492,7 +3478,7 @@ async function defineCard() {
           align-items: center;
           gap: 4px 12px;
           padding: 4px 16px 10px;
-          font-size: 0.72rem;
+          font-size: 0.8rem;
           color: var(--ltc-dim);
         }
         .legend ha-icon {
@@ -3682,7 +3668,7 @@ async function defineCard() {
         .chip {
           --c: #22d3ee;
           font: inherit;
-          font-size: 0.74rem;
+          font-size: 0.8rem;
           color: var(--ltc-fg);
           background: rgba(255, 255, 255, 0.04);
           border: 1px solid var(--ltc-border);
@@ -3694,7 +3680,6 @@ async function defineCard() {
           border-color: var(--c);
           color: var(--c);
           background: color-mix(in srgb, var(--c) 14%, transparent);
-          box-shadow: 0 0 8px color-mix(in srgb, var(--c) 40%, transparent);
         }
         .groups {
           display: flex;
@@ -3706,7 +3691,6 @@ async function defineCard() {
           background: var(--ltc-panel);
           border: 1px solid color-mix(in srgb, #60a5fa 45%, transparent);
           border-radius: 14px;
-          box-shadow: 0 0 12px rgba(96, 165, 250, 0.18);
           padding: 8px 10px 10px;
         }
         .ghead {
@@ -3729,26 +3713,25 @@ async function defineCard() {
           margin-right: -6px;
         }
         .weak {
-          font-size: 0.72rem;
+          font-size: 0.8rem;
           color: #f87171;
         }
         .ghead ha-icon {
           --mdc-icon-size: 18px;
           color: #60a5fa;
-          filter: drop-shadow(0 0 4px #60a5fa);
         }
         .gname {
           font-weight: 600;
         }
         .gsub {
           color: var(--ltc-dim);
-          font-size: 0.76rem;
+          font-size: 0.8rem;
         }
         .radio {
           display: inline-flex;
           align-items: center;
           gap: 5px;
-          font-size: 0.72rem;
+          font-size: 0.8rem;
           color: var(--ltc-dim);
           padding: 1px 8px;
           border: 1px solid var(--ltc-border);
@@ -3773,7 +3756,7 @@ async function defineCard() {
           display: inline-flex;
           align-items: center;
           gap: 4px;
-          font-size: 0.72rem;
+          font-size: 0.8rem;
           color: #fbbf24;
         }
         .warn ha-icon {
@@ -3794,8 +3777,7 @@ async function defineCard() {
           padding: 5px 8px;
           border-radius: 10px;
           background: rgba(255, 255, 255, 0.03);
-          border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
-          border-left: 3px solid var(--c);
+          border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
         }
         .sig {
           display: inline-flex;
@@ -3811,7 +3793,6 @@ async function defineCard() {
         }
         .sig i.on {
           background: var(--c);
-          box-shadow: 0 0 4px var(--c);
         }
         .cmain {
           flex: 1;
@@ -3825,7 +3806,7 @@ async function defineCard() {
           text-overflow: ellipsis;
         }
         .csub {
-          font-size: 0.68rem;
+          font-size: 0.8rem;
           color: var(--ltc-dim);
           white-space: nowrap;
           overflow: hidden;
@@ -3836,7 +3817,7 @@ async function defineCard() {
           align-items: center;
           gap: 6px;
           flex: none;
-          font-size: 0.7rem;
+          font-size: 0.8rem;
           font-variant-numeric: tabular-nums;
         }
         .cright small {
@@ -3844,7 +3825,7 @@ async function defineCard() {
           margin-left: 1px;
         }
         .band {
-          font-size: 0.62rem;
+          font-size: 0.8rem;
           font-weight: 700;
           padding: 1px 4px;
           border-radius: 5px;
@@ -3858,6 +3839,9 @@ async function defineCard() {
         }
         .snr {
           color: var(--c);
+        }
+        .snr small {
+          font-size: 11px;
         }
       `];
     }
