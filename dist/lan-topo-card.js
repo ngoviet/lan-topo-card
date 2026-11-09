@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.8.1";
+export const VERSION = "0.8.2";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -1877,7 +1877,7 @@ async function defineCard() {
       transition: box-shadow 0.2s, filter 0.2s;
     }
     .pt.on {
-      background: color-mix(in srgb, var(--c) 78%, #0a1122);
+      background: var(--c);
       color: #06101f;
       box-shadow: 0 0 6px color-mix(in srgb, var(--c) 45%, transparent);
     }
@@ -3180,7 +3180,7 @@ async function defineCard() {
           --c: #94a3b8;
         }
         .tname .w {
-          font-size: 0.68rem;
+          font-size: 0.7rem;
           color: var(--ltc-dim);
         }
         .tbar {
@@ -3255,7 +3255,7 @@ async function defineCard() {
         }
         .port .speed {
           flex: none;
-          font-size: 0.62rem;
+          font-size: 0.7rem;
           font-weight: 600;
           line-height: 1;
           padding: 2px 4px;
@@ -3301,7 +3301,7 @@ async function defineCard() {
           display: flex;
           flex-direction: column;
           align-items: center;
-          font-size: 0.68rem;
+          font-size: 0.7rem;
           line-height: 1.25;
           padding: 2px 6px;
           border-radius: 8px;
@@ -3883,7 +3883,7 @@ async function defineCard() {
           text-overflow: ellipsis;
         }
         .csub {
-          font-size: 0.68rem;
+          font-size: 0.7rem;
           color: var(--ltc-dim);
           white-space: nowrap;
           overflow: hidden;
@@ -3902,7 +3902,7 @@ async function defineCard() {
           margin-left: 1px;
         }
         .band {
-          font-size: 0.62rem;
+          font-size: 0.7rem;
           font-weight: 700;
           padding: 1px 4px;
           border-radius: 5px;
