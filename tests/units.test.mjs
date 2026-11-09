@@ -113,24 +113,45 @@ test("flowWidth: dày theo log10 lưu lượng, có chặn", async () => {
   assert.ok(flowWidth(50e6) > flowWidth(5e6)); // gấp 10 lần lưu lượng → dày hơn
 });
 
-test("leafFlowWidth: dây tới thiết bị dốc hơn, 7 vs 28 vs 775 Mbps khác nhau rõ", async () => {
-  const { leafFlowWidth } = await import("../dist/lan-topo-card.js");
-  assert.equal(leafFlowWidth(0), 0.8);
-  assert.ok(Math.abs(leafFlowWidth(1e7) - 3.6) < 1e-9);
-  assert.ok(Math.abs(leafFlowWidth(1e8) - 5) < 1e-9);
-  assert.equal(leafFlowWidth(1e9), 6);
-  assert.equal(leafFlowWidth(1e9, 4.5), 4.5);
-  assert.ok(leafFlowWidth(28e6) - leafFlowWidth(7e6) > 0.8);
-  assert.ok(leafFlowWidth(775e6) - leafFlowWidth(28e6) > 1.5);
+test("trafficWidth: log10 trải đều 100 kbps → min, 1 Gbps → max; tăng đều theo lưu lượng", async () => {
+  const { trafficWidth } = await import("../dist/lan-topo-card.js");
+  assert.equal(trafficWidth(0), 0.8);
+  assert.equal(trafficWidth(null), 0.8);
+  assert.equal(trafficWidth(1e5), 0.8);
+  assert.ok(Math.abs(trafficWidth(1e7) - 2.9) < 1e-9);
+  assert.equal(trafficWidth(1e9), 5);
+  assert.equal(trafficWidth(1e10), 5);
+  assert.equal(trafficWidth(1e9, 3), 3); // dây hẹp chỗ (cây dọc) vẫn chạm trần ở 1 Gbps
+  assert.equal(trafficWidth(1e9, 0.5), 0.5); // trần thấp hơn sàn: không vượt trần
+  // Số trong ảnh của người dùng: cam 6 Mbps < PC 28 Mbps < NAS 775 Mbps, mỗi bậc khác nhau rõ.
+  assert.ok(trafficWidth(28e6) - trafficWidth(6e6) > 0.6);
+  assert.ok(trafficWidth(775e6) - trafficWidth(28e6) > 1.2);
 });
 
-test("tailPath: đoạn ngang cuối của dây, bỏ góc bo; ngắn hoặc không nằm ngang thì null", async () => {
-  const { tailPath } = await import("../dist/lan-topo-card.js");
-  assert.equal(tailPath([[10, 0], [10, 50], [40, 50], [100, 50]]), "M50 50H100");
-  assert.equal(tailPath([[0, 0], [0, 50], [-80, 50]]), "M-10 50H-80");
-  assert.equal(tailPath([[0, 0], [0, 50], [20, 50]]), null);
-  assert.equal(tailPath([[0, 0], [40, 50]]), null);
-  assert.equal(tailPath(null), null);
+test("offsetPts: song song cách đều, góc vuông dời theo tổng 2 pháp tuyến", async () => {
+  const { offsetPts } = await import("../dist/lan-topo-card.js");
+  // Đi phải rồi xuống: bên trái theo chiều đi = phía trên ở đoạn ngang, phía phải (x lớn) ở đoạn dọc.
+  assert.deepEqual(offsetPts([[0, 0], [10, 0], [10, 10]], 2), [[0, -2], [12, -2], [12, 10]]);
+  assert.deepEqual(offsetPts([[0, 0], [10, 0], [10, 10]], -2), [[0, 2], [8, 2], [8, 10]]);
+  const P = [[0, 0], [0, 5]];
+  assert.equal(offsetPts(P, 0), P);
+  assert.deepEqual(offsetPts([[1, 1]], 3), [[1, 1]]);
+});
+
+test("splitWire: đoạn trong thẻ cha/con tách riêng, phần ngoài bắt đầu và kết thúc ở mép dưới thẻ", async () => {
+  const { splitWire } = await import("../dist/lan-topo-card.js");
+  const P = { x: 0, y: 0, w: 100, h: 50 };
+  const C = { x: 200, y: 0, w: 100, h: 50 };
+  const pts = [[20, 40], [20, 70], [150, 70], [150, 80], [250, 80], [250, 45]];
+  const { outer, inner } = splitWire(pts, P, C);
+  assert.deepEqual(outer, [[20, 50], [20, 70], [150, 70], [150, 80], [250, 80], [250, 50]]);
+  assert.deepEqual(inner, [[[20, 40], [20, 50]], [[250, 50], [250, 45]]]);
+  // Dây tới thiết bị cuối: kết thúc ở mép trái ô thiết bị (ngoài thẻ cha) → chỉ cắt đầu ra.
+  const leaf = splitWire([[20, 40], [20, 70], [150, 70], [150, 25], [200, 25]], P, C);
+  assert.deepEqual(leaf.inner, [[[20, 40], [20, 50]]]);
+  assert.deepEqual(leaf.outer[leaf.outer.length - 1], [200, 25]);
+  // Thẻ cha không có dải cổng: dây ra từ đúng mép dưới → không có đoạn trong thẻ.
+  assert.deepEqual(splitWire([[20, 50], [20, 70], [200, 70]], P, null).inner, []);
 });
 
 test("speedColor / speedLabel: tốc độ ≤ 0 hoặc NaN = chưa biết, không ném lỗi", () => {
