@@ -1842,7 +1842,8 @@ async function defineCard() {
     }
     .pt.on.busy,
     .pt.on.hot {
-      box-shadow: 0 0 0 1px #fff8, 0 0 11px var(--c);
+      outline: 1px solid #fff8;
+      outline-offset: 0;
     }
     .pt.off {
       background: rgba(148, 163, 184, 0.07);
