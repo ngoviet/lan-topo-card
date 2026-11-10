@@ -2411,7 +2411,7 @@ async function defineCard() {
     _faceKey(e, id) {
       const cell = e.target;
       const name = cell.dataset?.port;
-      if (!name) return;
+      if (!name || this._escClose(e, id, name)) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         e.stopPropagation();
@@ -2434,6 +2434,15 @@ async function defineCard() {
       if ((e.key !== "Enter" && e.key !== " ") || e.target !== e.currentTarget) return;
       e.preventDefault();
       fn();
+    }
+
+    /** Esc trên ô cổng đang mở khung chi tiết: đóng khung. Ô khác thì để Esc đi tiếp (HA có thể dùng). */
+    _escClose(e, id, name) {
+      if (e.key !== "Escape" || this._picked?.id !== id || this._picked.name !== name) return false;
+      e.preventDefault();
+      e.stopPropagation();
+      this._closePort();
+      return true;
     }
 
     /** Rê chuột lên ô cổng hoặc dây: sáng cả đường và ô ở đầu kia, phần còn lại mờ đi. */
@@ -2482,7 +2491,7 @@ async function defineCard() {
         data-port=${p.name}
         data-w=${lay.wireOf?.get(`${b.nodeId}/${p.name}`) ?? ""}
         @click=${pick}
-        @keydown=${(e) => this._activate(e, pick)}
+        @keydown=${(e) => this._escClose(e, b.nodeId, p.name) || this._activate(e, pick)}
       >
         <div class="pmain">
           ${meta.icon ? html`<ha-icon .icon=${meta.icon}></ha-icon>` : ""}
