@@ -35,7 +35,7 @@ Card Lovelace cho Home Assistant vẽ mạng LAN thành một cây sống:
 - **Đơn vị bất kỳ**: bit/s, kbit/s, Mbit/s, Gbit/s, B/s, kB/s, MB/s, KiB/s…
 - **Bấm vào switch** để mở cột thiết bị: chỉ hiện cổng có link hoặc có lưu lượng, ẩn cổng nối sang switch khác.
   Màu cổng theo tốc độ link, có chú thích ngay trong card.
-- **Khung chi tiết cổng**: bấm ô cổng để xem trạng thái, đầu kia của dây, thiết bị, IP, MAC, lưu lượng và số lần mất link, dùng được cả trên điện thoại. Dòng MAC và số lần mất link chỉ hiện khi entity link có thuộc tính `device_mac` / `link_downs`.
+- **Khung chi tiết cổng**: bấm ô cổng để xem trạng thái, đầu kia của dây, thiết bị, IP, MAC, lưu lượng và số lần mất link, dùng được cả trên điện thoại. Bằng bàn phím: mỗi dải cổng là một điểm dừng Tab, phím mũi tên đi giữa các ô, Enter hoặc Space mở khung, Esc đóng khung và đưa focus về lại ô cổng. Dòng MAC và số lần mất link chỉ hiện khi entity link có thuộc tính `device_mac` / `link_downs`.
 - **Thu nhánh**: nút `−` trên thẻ ẩn toàn bộ phía sau node, `+N` để mở lại; mỗi trình duyệt nhớ riêng.
 - **Hai mẫu hiển thị** (`detail`): Đầy đủ hiện từng cổng trên thẻ thiết bị, dây cắm thẳng vào đúng cổng; Đơn giản giữ
   thẻ gọn.

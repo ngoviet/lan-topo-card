@@ -36,7 +36,7 @@ and stand still when idle.
 - **Any data-rate unit**: bit/s, kbit/s, Mbit/s, Gbit/s, B/s, kB/s, MB/s, KiB/s…
 - **Tap a switch** to open its device column: only ports with a link or traffic, without the ports that connect to
   other switches. Ports are colored by link speed, with a built-in legend.
-- **Port detail panel**: tap a port to see its status, the far end of the wire, device, IP, MAC, traffic and link drops, on phones too. The MAC and link-drop rows appear when the link entity carries `device_mac` / `link_downs`.
+- **Port detail panel**: tap a port to see its status, the far end of the wire, device, IP, MAC, traffic and link drops, on phones too. With a keyboard, each port strip is one Tab stop: arrow keys move between cells, Enter or Space opens the panel, Esc closes it and puts focus back on the cell. The MAC and link-drop rows appear when the link entity carries `device_mac` / `link_downs`.
 - **Collapse branches**: the `−` button on a card hides everything behind the node, `+N` brings it back; each browser remembers its own choice.
 - **Two detail levels** (`detail`): Full shows every port on the device card, with wires plugged into the exact
   ports; Simple keeps the compact cards.
