@@ -29,6 +29,7 @@ import {
   portsBehind,
   FACE_METRICS,
   LAYOUT,
+  stepCell,
 } from "../dist/lan-topo-card.js";
 
 const port = (name, extra = {}) => ({ name, linked: false, speedMbps: null, rxBps: null, txBps: null, poe: null, disabled: false, ...extra });
@@ -576,4 +577,21 @@ test("branchNodes và buildTree: thu nhánh ẩn cả cây con, không tính dâ
   assert.equal(find(shut, "r").children.length, 0);
   assert.equal(find(shut, "r").fan, undefined);
   assert.doesNotThrow(() => fitLayout([shut], 1200, { layout: "horizontal" }));
+});
+
+test("stepCell: mũi tên đi theo vị trí ô trên dải (cổng chẵn ở hàng trên), hết ô thì -1", () => {
+  const ports = [...ethers(24), port("sfp-sfpplus1"), port("sfp-sfpplus2")];
+  const face = panelLayout(portPanel(ports, faceplateSpec({ ports: {} }, { model: "CRS326-24G-2S+RM" })), FACE_METRICS.full);
+  const names = face.cells.map((c) => c.port.name);
+  const at = (name) => names.indexOf(name);
+  const go = (name, key) => names[stepCell(face.cells, at(name), key)];
+  assert.equal(go("ether2", "ArrowRight"), "ether4");
+  assert.equal(go("ether1", "ArrowRight"), "ether3");
+  assert.equal(go("ether2", "ArrowDown"), "ether1");
+  assert.equal(go("ether1", "ArrowUp"), "ether2");
+  assert.equal(go("ether8", "ArrowRight"), "ether10", "qua khe giữa hai cụm");
+  assert.equal(go("ether23", "ArrowRight"), "sfp-sfpplus1", "SFP nằm ở hàng dưới bên phải");
+  assert.equal(stepCell(face.cells, at("ether2"), "ArrowLeft"), -1);
+  assert.equal(stepCell(face.cells, at("ether1"), "ArrowDown"), -1);
+  assert.equal(stepCell(face.cells, at("ether1"), "Tab"), -1);
 });

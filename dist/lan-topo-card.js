@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.8.2";
+export const VERSION = "0.8.3";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -618,7 +618,7 @@ export const LAYOUT = {
   pad: 14,
   nodeW: 184,
   nodeH: 74,
-  portW: 214,
+  portW: 230, // chữ phụ ≥ 12px: đủ chỗ "ether19 · 192.168.100.19" cạnh cột ↓/↑
   portH: 40,
   colGap: 104,
   rowGap: 22,
@@ -800,6 +800,31 @@ export function panelLayout(panel, M = FACE_METRICS.full, maxW = Infinity) {
     w = Math.max(w, x);
   });
   return { x: M.pad, y: 0, w, h: y + rowH, cells, label: M.label };
+}
+
+/**
+ * Ô kế tiếp khi bấm mũi tên trên mặt thiết bị. Đi theo vị trí, không theo thứ tự DOM: DOM đi dọc
+ * từng cột (cổng chẵn ở hàng trên). rects: [{ x, y, w, h }]. Trả chỉ số ô, -1 nếu phía đó hết ô.
+ */
+export function stepCell(rects, from, key) {
+  const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[key];
+  if (!dir || !rects[from]) return -1;
+  const mid = (r) => [r.x + r.w / 2, r.y + r.h / 2];
+  const [x0, y0] = mid(rects[from]);
+  let best = -1;
+  let score = Infinity;
+  rects.forEach((r, i) => {
+    const [x, y] = mid(r);
+    const along = (x - x0) * dir[0] + (y - y0) * dir[1];
+    if (i === from || along <= 0.5) return;
+    // Lệch hàng (hay lệch cột) bị phạt nặng: → đi hết hàng đang đứng, không nhảy chéo sang hàng kia.
+    const s = along + 4 * (Math.abs((x - x0) * dir[1]) + Math.abs((y - y0) * dir[0]));
+    if (s < score) {
+      score = s;
+      best = i;
+    }
+  });
+  return best;
 }
 
 /**
@@ -1645,6 +1670,7 @@ const STRINGS = {
     d_on: "Đang cấp",
     d_more: "Mở chi tiết",
     d_close: "Đóng",
+    face: (n) => `Cổng của ${n}`,
     days: (n) => `${n} ngày`,
     hours: (n) => `${n} giờ`,
     detail_simple: "Đơn giản",
@@ -1698,6 +1724,7 @@ const STRINGS = {
     d_on: "Powering",
     d_more: "More info",
     d_close: "Close",
+    face: (n) => `${n} ports`,
     days: (n) => `${n}d`,
     hours: (n) => `${n}h`,
     detail_simple: "Simple",
@@ -1904,6 +1931,12 @@ async function defineCard() {
     .pt:hover {
       filter: brightness(1.2);
     }
+    /* Vòng focus khi đi bằng bàn phím: xanh lơ 2px trên nền tối, khác viền trắng của ô đang chọn. */
+    button:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 2px solid #67e8f9;
+      outline-offset: 2px;
+    }
   `;
 
   /**
@@ -1998,6 +2031,8 @@ async function defineCard() {
         this._collapsed = new Set();
       }
       this._picked = null;
+      // Ô nhận Tab của mỗi dải cổng (node id → tên cổng), nhớ ô người dùng đứng lần cuối.
+      this._roving = new Map();
       const motion = ["auto", "off"].includes(config.motion) ? config.motion : "on";
       this.setAttribute("motion", motion);
       this._config = config;
@@ -2213,7 +2248,8 @@ async function defineCard() {
       // Internet, modem là thẻ nhỏ không có cổng: thêm nút thì cắt mất tên.
       if (!n || !this._topo.nodes.get(id).ports) return "";
       const shut = this._collapsed.has(id);
-      const label = shut ? T.unfold : T.fold;
+      // Tên truy cập chứa cả "+N" đang hiện (WCAG 2.5.3: người dùng điều khiển bằng giọng nói gọi đúng chữ mình thấy).
+      const label = shut ? `${T.unfold} +${n}` : T.fold;
       return html`<button
         type="button"
         class="fold"
@@ -2225,7 +2261,7 @@ async function defineCard() {
           this._toggleFold(id);
         }}
       >
-        ${shut ? `+${n}` : "−"}
+        <span aria-hidden="true">${shut ? `+${n}` : "−"}</span>
       </button>`;
     }
 
@@ -2237,12 +2273,16 @@ async function defineCard() {
       if (!node || !p) return "";
       const meta = node.portNames[p.name] || {};
       const rows = portRows(p, meta, portPeer(this._topo, pick.id, p.name), T, locale, node.expect_speed);
-      return html`<div class="pdetail" style="--c:${speedColor(p.speedMbps, p.linked !== false)}">
+      return html`<div
+        class="pdetail"
+        style="--c:${speedColor(p.speedMbps, p.linked !== false)}"
+        @keydown=${(e) => e.key === "Escape" && this._closePort()}
+      >
         <div class="pdhead">
           <span class="pdchip">${portLabel(p.name)}</span>
           <span class="pdname">${node.name} · ${p.name}</span>
           ${p.entity ? html`<button type="button" class="pdbtn" @click=${() => this._moreInfo(p.entity)}>${T.d_more}</button>` : ""}
-          <button type="button" class="pdbtn close" aria-label=${T.d_close} title=${T.d_close} @click=${() => (this._picked = null)}>×</button>
+          <button type="button" class="pdbtn close" aria-label=${T.d_close} title=${T.d_close} @click=${() => this._closePort()}>×</button>
         </div>
         <div class="pdrows">${rows.map(([k, v]) => html`<div class="pdrow"><span>${k}</span><b>${v}</b></div>`)}</div>
       </div>`;
@@ -2313,27 +2353,87 @@ async function defineCard() {
       const f = b.face;
       const linkPorts = linkPortsOf(this._topo, b.id);
       const uplinks = new Set(this._topo.edges.filter((e) => e.to === b.id).flatMap((e) => e.toPorts));
-      return html`<div class="pface ${f.label ? "" : "led"}" style="left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px">
-        ${f.cells.map((c) => {
-          const p = c.port;
-          const meta = node.portNames[p.name] || {};
-          const state = portState(p, { meta, uplink: uplinks.has(p.name), linkPort: linkPorts.has(p.name), expect: node.expect_speed });
-          const hot = heatLevel((p.txBps ?? 0) + (p.rxBps ?? 0), this._heatOpts) === 2 ? "hot" : "";
-          const picked = this._picked?.id === b.id && this._picked.name === p.name ? "picked" : "";
-          return html`<div
-            class="pt ${state} ${hot} ${picked}"
-            style="left:${c.x}px;top:${c.y}px;width:${c.w}px;height:${c.h}px;--c:${speedColor(p.speedMbps, true)}"
-            title=${portTip(node.name, p, meta, T, locale, node.expect_speed)}
-            data-w=${lay.wireOf?.get(`${b.id}/${p.name}`) ?? ""}
+      const box = `left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px`;
+      const cells = f.cells.map((c) => {
+        const p = c.port;
+        const meta = node.portNames[p.name] || {};
+        const state = portState(p, { meta, uplink: uplinks.has(p.name), linkPort: linkPorts.has(p.name), expect: node.expect_speed });
+        const hot = heatLevel((p.txBps ?? 0) + (p.rxBps ?? 0), this._heatOpts) === 2 ? "hot" : "";
+        const picked = this._picked?.id === b.id && this._picked.name === p.name;
+        return {
+          p,
+          cls: `pt ${state} ${hot} ${picked ? "picked" : ""}`,
+          style: `left:${c.x}px;top:${c.y}px;width:${c.w}px;height:${c.h}px;--c:${speedColor(p.speedMbps, true)}`,
+          tip: portTip(node.name, p, meta, T, locale, node.expect_speed),
+          w: lay.wireOf?.get(`${b.id}/${p.name}`) ?? "",
+          picked,
+        };
+      });
+      // Dải chấm của kiểu vòng: không số, không bấm, chỉ để nhìn.
+      if (!f.label) {
+        return html`<div class="pface led" style=${box}>
+          ${cells.map((c) => html`<div class=${c.cls} style=${c.style} title=${c.tip} data-w=${c.w}></div>`)}
+        </div>`;
+      }
+      // Cả dải là một điểm dừng Tab (roving tabindex), mũi tên đi giữa các ô: switch 26 cổng không bắt Tab 26 lần.
+      const names = cells.map((c) => c.p.name);
+      const stop = [this._roving.get(b.id), this._picked?.id === b.id ? this._picked.name : null].find((n) => n && names.includes(n)) ?? names[0];
+      return html`<div
+        class="pface"
+        style=${box}
+        role="toolbar"
+        aria-label=${T.face(node.name)}
+        @keydown=${(e) => this._faceKey(e, b.id)}
+        @focusin=${(e) => e.target.dataset?.port && this._roving.set(b.id, e.target.dataset.port)}
+      >
+        ${cells.map(
+          (c) => html`<div
+            class=${c.cls}
+            style=${c.style}
+            title=${c.tip}
+            role="button"
+            tabindex=${c.p.name === stop ? "0" : "-1"}
+            aria-label=${`${portLabel(c.p.name)} · ${node.name} ${c.p.name}`}
+            aria-expanded=${c.picked ? "true" : "false"}
+            data-node=${b.id}
+            data-port=${c.p.name}
+            data-w=${c.w}
             @click=${(e) => {
               e.stopPropagation();
-              this._pickPort(b.id, p.name);
+              this._pickPort(b.id, c.p.name, "pt");
             }}
-          >
-            ${f.label ? portLabel(p.name) : ""}
-          </div>`;
-        })}
+          >${portLabel(c.p.name)}</div>`,
+        )}
       </div>`;
+    }
+
+    /** Bàn phím trên dải cổng: Enter/Space mở chi tiết, mũi tên sang ô bên cạnh, Home/End về ô đầu/cuối. */
+    _faceKey(e, id) {
+      const cell = e.target;
+      const name = cell.dataset?.port;
+      if (!name) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        e.stopPropagation();
+        this._pickPort(id, name, "pt");
+        return;
+      }
+      const all = [...e.currentTarget.querySelectorAll("[data-port]")];
+      const from = all.indexOf(cell);
+      const rects = all.map((c) => ({ x: c.offsetLeft, y: c.offsetTop, w: c.offsetWidth, h: c.offsetHeight }));
+      const to = e.key === "Home" ? 0 : e.key === "End" ? all.length - 1 : stepCell(rects, from, e.key);
+      if (to < 0 || to === from) return;
+      e.preventDefault();
+      cell.tabIndex = -1;
+      all[to].tabIndex = 0;
+      all[to].focus();
+    }
+
+    /** Enter/Space trên div role="button": làm như bấm chuột (button thật thì trình duyệt tự làm). */
+    _activate(e, fn) {
+      if ((e.key !== "Enter" && e.key !== " ") || e.target !== e.currentTarget) return;
+      e.preventDefault();
+      fn();
     }
 
     /** Rê chuột lên ô cổng hoặc dây: sáng cả đường và ô ở đầu kia, phần còn lại mờ đi. */
@@ -2371,11 +2471,18 @@ async function defineCard() {
       const barW = bar.d + bar.u;
       // --s: chỗ chuyển màu ↓ → ↑, tính theo bề ngang của chính thanh.
       const barS = barW ? (bar.d / barW) * 100 : 0;
+      const pick = () => this._pickPort(b.nodeId, p.name, "port");
       return html`<div
         class="port clickable ${p.linked ? "" : "down"} heat${heat} ${picked}"
         style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;--c:${color};--u:${barW.toFixed(1)}%;--s:${barS.toFixed(1)}%"
+        role="button"
+        tabindex="0"
+        aria-expanded=${picked ? "true" : "false"}
+        data-node=${b.nodeId}
+        data-port=${p.name}
         data-w=${lay.wireOf?.get(`${b.nodeId}/${p.name}`) ?? ""}
-        @click=${() => this._pickPort(b.nodeId, p.name)}
+        @click=${pick}
+        @keydown=${(e) => this._activate(e, pick)}
       >
         <div class="pmain">
           ${meta.icon ? html`<ha-icon .icon=${meta.icon}></ha-icon>` : ""}
@@ -2399,14 +2506,17 @@ async function defineCard() {
               const pct = Math.max(2, (r.total / rows[0].total) * 100);
               const downPart = r.total ? (r.down / r.total) * pct : 0;
               const heat = heatLevel(r.total, this._heatOpts);
-              return html`<div class="trow heat${heat} ${r.port.entity ? "clickable" : ""}" @click=${() => this._moreInfo(r.port.entity)}>
-                <span class="rank">${i + 1}</span>
+              const body = html`<span class="rank">${i + 1}</span>
                 <div class="tname">
                   <span class="n">${r.icon ? html`<ha-icon .icon=${r.icon}></ha-icon>` : ""}${r.name}</span>
                   <span class="w">${r.nodeName} · ${r.port.name}</span>
                 </div>
                 <div class="tbar"><i class="d" style="width:${downPart.toFixed(1)}%"></i><i class="u" style="width:${(pct - downPart).toFixed(1)}%"></i></div>
-                <div class="tval"><span class="d">↓${formatRate(r.down, locale)}</span><span class="u">↑${formatRate(r.up, locale)}</span></div>
+                <div class="tval"><span class="d">↓${formatRate(r.down, locale)}</span><span class="u">↑${formatRate(r.up, locale)}</span></div>`;
+              if (!r.port.entity) return html`<div class="trow heat${heat}">${body}</div>`;
+              const open = () => this._moreInfo(r.port.entity);
+              return html`<div class="trow heat${heat} clickable" role="button" tabindex="0" @click=${open} @keydown=${(e) => this._activate(e, open)}>
+                ${body}
               </div>`;
             })
           : html`<div class="tnone">${T.top_none}</div>`}
@@ -2445,13 +2555,24 @@ async function defineCard() {
       }
     }
 
-    /** Chọn cổng để xem chi tiết; chọn lại cổng đang mở thì đóng. */
-    _pickPort(id, name) {
+    /** Chọn cổng để xem chi tiết; chọn lại cổng đang mở thì đóng. kind: "pt" (ô trên dải) hoặc "port" (ô thiết bị). */
+    _pickPort(id, name, kind = "pt") {
       const same = this._picked?.id === id && this._picked.name === name;
-      this._picked = same ? null : { id, name };
+      this._picked = same ? null : { id, name, kind };
       if (same) return;
       // Sơ đồ dài trên điện thoại: khung nằm dưới cùng, không cuộn tới thì bấm như không có gì xảy ra.
       this.updateComplete.then(() => this.renderRoot.querySelector(".pdetail")?.scrollIntoView({ block: "nearest" }));
+    }
+
+    /** Đóng khung chi tiết (nút ×, Esc), đưa focus và màn hình về ô cổng đã mở khung. */
+    _closePort() {
+      const pick = this._picked;
+      if (!pick) return;
+      this._picked = null;
+      this.updateComplete.then(() => {
+        const mine = [...this.renderRoot.querySelectorAll("[data-port]")].filter((el) => el.dataset.node === pick.id && el.dataset.port === pick.name);
+        (mine.find((el) => el.classList.contains(pick.kind)) || mine[0])?.focus();
+      });
     }
 
     _detailKey(config = this._config) {
@@ -2906,6 +3027,18 @@ async function defineCard() {
           outline-offset: 1px;
           z-index: 1;
         }
+        /* Focus bàn phím thắng mọi viền khác của ô: đang chọn (trắng 2px), tải cao (.pt.on.hot, trắng 1px),
+           chậm (vàng). Ô thiết bị sát mép khung sơ đồ (overflow: hidden) thì vòng ngoài bị cắt, nên vẽ vào trong. */
+        .pface .pt:focus-visible {
+          outline: 2px solid #67e8f9;
+          outline-offset: 2px;
+          z-index: 2;
+        }
+        .port:focus-visible,
+        .port.picked:focus-visible {
+          outline: 2px solid #67e8f9;
+          outline-offset: -3px;
+        }
         .pdetail {
           margin: 8px 16px 2px;
           padding: 10px 12px;
@@ -2981,7 +3114,7 @@ async function defineCard() {
           min-width: 0;
           padding: 0;
           border-radius: 3px;
-          font-size: 9px;
+          font-size: 12px;
           line-height: 1;
         }
         .pface.led .pt {
@@ -3170,7 +3303,7 @@ async function defineCard() {
           --c: #94a3b8;
         }
         .tname .w {
-          font-size: 0.7rem;
+          font-size: 0.75rem;
           color: var(--ltc-dim);
         }
         .tbar {
@@ -3243,7 +3376,7 @@ async function defineCard() {
         }
         .port .speed {
           flex: none;
-          font-size: 0.7rem;
+          font-size: 0.75rem;
           font-weight: 600;
           line-height: 1;
           padding: 2px 4px;
@@ -3289,7 +3422,7 @@ async function defineCard() {
           display: flex;
           flex-direction: column;
           align-items: center;
-          font-size: 0.7rem;
+          font-size: 0.75rem;
           line-height: 1.25;
           padding: 2px 6px;
           border-radius: 8px;
