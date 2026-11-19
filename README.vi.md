@@ -130,6 +130,7 @@ edges:
 | `motion` | `on` | `on`: hạt luôn chạy (hạt là thông tin lưu lượng); `auto`: dừng khi hệ điều hành bật giảm chuyển động (Windows tắt *Animation effects*); `off`: không bao giờ chạy. Thẻ bị cuộn khuất thì hạt tạm dừng |
 | `lldp` | `true` | Sửa cổng của cạnh theo LLDP khi YAML đã cũ (xem *Edge*); `false`: luôn dùng đúng YAML |
 | `backbone` | `auto` | Dây trục chính (hai đầu đều là `router` hoặc `switch`) có thêm ống bọc hai viền cùng màu tốc độ link, nhìn là thấy trục mà màu vẫn là tốc độ, độ dày sợi vẫn là lưu lượng. `false` để tắt |
+| `core` | `auto` | Thiết bị chính (`router`, `switch`) vẽ thành khối nổi: nền ngả màu, vòng viền đậm, bóng đổ, tách hẳn khỏi thiết bị con. Kích thước ô không đổi. `false` để tắt |
 | `language` | theo HA | `vi` hoặc `en` |
 
 ### Node
@@ -146,6 +147,7 @@ edges:
 | `port_names` | Tên từng cổng: `"tên \| ip"`, `{ name, ip, icon, show, poe, optional }` (`poe: false` ẩn ⚡; `optional: true`: máy hay tắt, mất link không báo lỗi), hoặc `false` để ẩn. Không ghi tên thì card dùng thuộc tính `device` / `device_ip` của entity link (routeros_ha: LLDP neighbor hoặc comment DHCP lease), rồi tới comment của cổng |
 | `show_all_ports` | Như tuỳ chọn của card nhưng chỉ cho node này |
 | `brand` | Nhãn hãng trên thẻ (mặc định lấy từ device registry) |
+| `core` | `true` / `false`: bật hoặc tắt kiểu khối nổi cho riêng node này |
 | `stats` | Dòng CPU, RAM, thời gian chạy, nhiệt độ và số cổng đang cấp PoE (chỉ đếm cổng có ô trên thẻ) trên thẻ mẫu đầy đủ. Tự nhận theo tên entity của device; ghi đè bằng `{ cpu, ram, uptime, temp }`, `false` để tắt |
 | `model` | Model để chọn cách xếp cổng, ưu tiên hơn device registry. Không có cả hai thì thử `prefix` của adapter |
 | `faceplate` | `auto` (mặc định), `false` (thẻ này không có dải cổng) hoặc `{ rows, top, block, sfp }`: số hàng, `top: even` = cổng chẵn ở hàng trên, số cột mỗi cụm, phía đặt SFP (`left`/`right`) |

@@ -132,6 +132,7 @@ edges:
 | `motion` | `on` | `on`: flow dots always move (they carry information); `auto`: stop when the OS asks for reduced motion (Windows *Animation effects* off); `off`: never move. Dots pause while the card is scrolled out of view |
 | `lldp` | `true` | Fix stale edge ports from LLDP (see *Edge*); `false` always uses the YAML as written |
 | `backbone` | `auto` | Backbone links (both ends a `router` or `switch`) get a two-rail casing in the link-speed color, so the trunk stands out while color still means speed and strand width still means traffic. `false` turns it off |
+| `core` | `auto` | Core devices (`router`, `switch`) are drawn as raised blocks: tinted fill, solid ring and a drop shadow, so they stand apart from end devices. Box sizes do not change. `false` turns it off |
 | `language` | HA language | `vi` or `en` |
 
 ### Node
@@ -148,6 +149,7 @@ edges:
 | `port_names` | Per-port label: `"name \| ip"`, `{ name, ip, icon, show, poe, optional }` (`poe: false` hides ⚡; `optional: true`: a device that is often off, losing link is not a fault) or `false` to hide. Without a name the card uses the `device` / `device_ip` attributes of the link entity (routeros_ha: LLDP neighbor or DHCP lease comment), then the port comment |
 | `show_all_ports` | Per-node version of the card option |
 | `brand` | Vendor badge on the card (defaults to the device registry) |
+| `core` | `true` / `false` forces the raised core-device look on or off for this node |
 | `stats` | CPU, RAM, uptime, temperature and the number of ports currently supplying PoE (counted among the ports shown on the card), on full-detail cards. Detected from the device's entity names; override with `{ cpu, ram, uptime, temp }`, `false` to disable |
 | `model` | Model used to pick the port arrangement; takes priority over the device registry. With neither, the adapter's `prefix` is tried |
 | `faceplate` | `auto` (default), `false` (no port strip on this card) or `{ rows, top, block, sfp }`: rows, `top: even` = even ports on the top row, columns per group, SFP side (`left`/`right`) |
