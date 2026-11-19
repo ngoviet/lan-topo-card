@@ -175,3 +175,24 @@ test("isBackbone: cạnh router/switch ↔ router/switch là trục chính; ghi 
   assert.equal(bb("crs326"), false, "backbone: false trên cạnh");
   assert.equal(bb("crs310_1", false), false, "backbone: false trên thẻ");
 });
+
+test("isCoreNode: router/switch là thiết bị chính; ghi đè trên node, tắt trên thẻ", async () => {
+  const { isCoreNode } = await import("../dist/lan-topo-card.js");
+  const topo = normalizeConfig({
+    nodes: [
+      { id: "internet", type: "internet" },
+      { id: "r", type: "router" },
+      { id: "s", type: "switch" },
+      { id: "s2", type: "switch", core: false },
+      { id: "ap", type: "ap", core: true },
+    ],
+    edges: [{ from: "internet", to: "r" }, { from: "r", to: "s" }, { from: "s", to: "s2" }, { from: "s", to: "ap" }],
+  });
+  const core = (id, opt) => isCoreNode(topo.nodes.get(id), opt);
+  assert.equal(core("internet"), false);
+  assert.equal(core("r"), true);
+  assert.equal(core("s"), true);
+  assert.equal(core("s2"), false, "core: false trên node");
+  assert.equal(core("ap"), true, "core: true trên node");
+  assert.equal(core("r", false), false, "core: false trên thẻ");
+});

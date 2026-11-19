@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.9.0";
+export const VERSION = "0.10.0";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -483,6 +483,16 @@ export function isBackbone(topo, edge, option = "auto") {
   if (option === false) return false;
   if (edge.backbone === true || edge.backbone === false) return edge.backbone;
   return BACKBONE_TYPES.has(topo.nodes.get(edge.from)?.type) && BACKBONE_TYPES.has(topo.nodes.get(edge.to)?.type);
+}
+
+/**
+ * Node có phải thiết bị chính không (vẽ thành khối nổi): mặc định là `router`/`switch`, cùng quy tắc với
+ * trục chính. `core: true|false` trên node ghi đè; `core: false` trên thẻ tắt hẳn.
+ */
+export function isCoreNode(node, option = "auto") {
+  if (option === false || !node) return false;
+  if (node.core === true || node.core === false) return node.core;
+  return BACKBONE_TYPES.has(node.type);
 }
 
 /** Tên mà LLDP của node khác có thể gọi node này: name, ports.device, id (không phân biệt hoa thường). */
@@ -1755,6 +1765,7 @@ const STRINGS = {
     up_dev: "↑ từ thiết bị",
     no_link: "Không có link",
     backbone: "trục chính",
+    core: "thiết bị chính",
     poe: "PoE",
     empty: "trống",
     fault: "lỗi: phải có link",
@@ -1810,6 +1821,7 @@ const STRINGS = {
     up_dev: "↑ from device",
     no_link: "No link",
     backbone: "backbone",
+    core: "core device",
     poe: "PoE",
     empty: "empty",
     fault: "fault: should be linked",
@@ -1993,6 +2005,15 @@ async function defineCard() {
       background: transparent;
       border: 1.5px solid #cbd5e1;
       box-sizing: border-box;
+    }
+    /* Thiết bị chính: khối nổi (nền ngả màu, viền, bóng đổ), giống ô router/switch trên sơ đồ. */
+    .legend i.core {
+      --c: #22d3ee;
+      width: 14px;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--c) 45%, #0e1a33), color-mix(in srgb, var(--c) 15%, #0b1428));
+      border: 1px solid var(--c);
+      box-sizing: border-box;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.7);
     }
     .legend i.slow {
       --c: #9ca3af;
@@ -2348,7 +2369,7 @@ async function defineCard() {
       const online = rich && (ports.some((p) => p.linked) || Object.values(rich.stats).some(alive));
       const onClick = () => (expandable ? this._toggle(node) : this._moreInfo(node.entity));
       return html`<div
-        class="node ${node.type} ${expandable || node.entity ? "clickable" : ""} ${expanded ? "expanded" : ""} ${count ? "stack" : ""} ${err ? "warn" : ""} ${b.face ? "faced" : ""}"
+        class="node ${node.type} ${isCoreNode(node, this._config.core) ? "core" : ""} ${expandable || node.entity ? "clickable" : ""} ${expanded ? "expanded" : ""} ${count ? "stack" : ""} ${err ? "warn" : ""} ${b.face ? "faced" : ""}"
         style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;--c:${node.color}"
         title=${expandable ? T.tap_open : ""}
         @click=${onClick}
@@ -2792,6 +2813,9 @@ async function defineCard() {
         ${this._lay?.links.some((l) => l.kind === "node" && isBackbone(this._topo, l.edge, this._config.backbone))
           ? html`<span><i class="bb"></i>${T.backbone}</span>`
           : ""}
+        ${this._lay?.boxes.some((b) => b.kind === "node" && isCoreNode(this._topo.nodes.get(b.id), this._config.core))
+          ? html`<span><i class="core"></i>${T.core}</span>`
+          : ""}
         ${this._lay?.boxes.some((b) => b.face)
           ? html`<span><i class="off"></i>${T.empty}</span>
               <span><i class="fault"></i>${T.fault}</span>
@@ -3128,6 +3152,24 @@ async function defineCard() {
           border-color: var(--c);
           box-shadow: 0 0 22px color-mix(in srgb, var(--c) 55%, transparent),
             inset 0 0 16px color-mix(in srgb, var(--c) 18%, transparent);
+        }
+        /* Thiết bị chính (router/switch): khối nổi. Màu vẫn là màu node; chỉ thêm nền, vòng viền, bóng đổ. */
+        .node.core {
+          background: linear-gradient(180deg, color-mix(in srgb, var(--c) 24%, #0e1a33), color-mix(in srgb, var(--c) 9%, #0b1428));
+          border-color: var(--c);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 45%, transparent), 0 14px 28px -8px rgba(0, 0, 0, 0.8),
+            0 0 26px -4px color-mix(in srgb, var(--c) 60%, transparent);
+        }
+        .node.core .name {
+          font-weight: 700;
+        }
+        .node.core.expanded {
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 60%, transparent), 0 14px 28px -8px rgba(0, 0, 0, 0.8),
+            0 0 30px -2px color-mix(in srgb, var(--c) 70%, transparent);
+        }
+        .node.core.stack {
+          box-shadow: 5px -5px 0 -1px color-mix(in srgb, var(--c) 35%, #0a1122),
+            10px -10px 0 -2px color-mix(in srgb, var(--c) 20%, #0a1122), 0 14px 28px -8px rgba(0, 0, 0, 0.8);
         }
         .node.warn .st {
           color: #fbbf24;
