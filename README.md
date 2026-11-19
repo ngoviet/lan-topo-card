@@ -248,7 +248,7 @@ integration the card looks as before.
   far AP, 5 GHz-capable devices on 2.4 GHz, AP whose detail could not be read; plus when the detail was read.
 - AP header: uptime (`uptime_s`), a pin when the channel is pinned, radio `↻ %` retry (red at ≥ 15 %),
   `⟳ resets/day` when > 2. Hover a radio for 64 s busy, set power and foreign BSS on the same channel.
-- Client tile: at most 2 badges — `→T3 +37` (another AP hears it 37 dB louder), `↻54%` (retry ≥ 30 %),
+- Client tile: at most 2 badges — `→T3 +37` (another AP hears it 37 dB louder), `↻54%` (retry over the last 5 minutes ≥ 30 %),
   `5G?` (5 GHz-capable device on 2.4 GHz).
 - **Tap/click a tile** (or Enter) to open the detail panel: Tx/Rx rate, traffic over 5 minutes, retry 5 min /
   since connect, client health, louder AP, MAC, host name, PHY, channel. Works on phones.

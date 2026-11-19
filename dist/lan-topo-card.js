@@ -686,8 +686,10 @@ export const RETRY_BADGE_PCT = 30;
 export function clientBadges(c) {
   const out = [];
   if (c?.louder_ap && Number(c.louder_gain) > 0) out.push({ kind: "louder", ap: shortAp(c.louder_ap), gain: Number(c.louder_gain) });
-  const r = clientRetry(c);
-  if (r !== null && r >= RETRY_BADGE_PCT) out.push({ kind: "retry", pct: Math.round(r) });
+  // Huy hiệu CHỈ dùng retry 5 phút. Đo 20/11/2026 trên 55 máy thật: "từ lúc nối" ≥ 30 % ở 17 máy (kéo lên bởi
+  // lúc chập chờn cũ, vd 72,7 % trong khi 5 phút gần nhất 2,4 %), "5 phút" ≥ 30 % chỉ 2 máy ⇒ chỉ số này báo đúng.
+  const r5 = Number(c?.retry_5m);
+  if (c?.retry_5m !== null && c?.retry_5m !== undefined && Number.isFinite(r5) && r5 >= RETRY_BADGE_PCT) out.push({ kind: "retry", pct: Math.round(r5) });
   if (c?.stuck_24) out.push({ kind: "stuck" });
   return out.slice(0, 2);
 }
@@ -1882,6 +1884,7 @@ const STRINGS = {
     d_louder: "AP nghe to hơn",
     d_louder_hint: "Ngắt máy này để nó chọn lại AP: aruba-axi plan rebalance",
     d_stuck: "Máy có 5 GHz nhưng đang ở 2,4 GHz",
+    d_net: "IP · SSID",
     d_ident: "MAC · hostname · hệ điều hành",
     d_radio: "Chuẩn · kênh · AP",
     d_close: "Đóng",
@@ -1966,6 +1969,7 @@ const STRINGS = {
     d_louder: "Heard louder by",
     d_louder_hint: "Disconnect it so it re-picks an AP: aruba-axi plan rebalance",
     d_stuck: "5 GHz-capable device sitting on 2.4 GHz",
+    d_net: "IP · SSID",
     d_ident: "MAC · hostname · OS",
     d_radio: "PHY · channel · AP",
     d_close: "Close",
@@ -4194,6 +4198,8 @@ async function defineCard() {
       if (c.health) rows.push([T.d_health, c.health]);
       if (c.louder_ap) rows.push([T.d_louder, `${shortAp(c.louder_ap)} (+${c.louder_gain} dB) — ${T.d_louder_hint}`]);
       if (c.stuck_24) rows.push([T.d_stuck, "✓"]);
+      // IP + SSID nhắc lại ở đây: trong ô 230 px chúng hay bị cắt bằng "…" (nhất là khi có huy hiệu).
+      if (c.ip || c.essid) rows.push([T.d_net, [c.ip, c.essid].filter(Boolean).join(" · ")]);
       rows.push([T.d_ident, [c.mac, c.hostname, c.os && c.os !== "NOFP" ? c.os : null].filter(Boolean).join(" · ")]);
       rows.push([T.d_radio, [c.phy, c.channel ? `ch ${c.channel}` : null, c.ap].filter(Boolean).join(" · ")]);
       return html`<div class="detail" role="region" aria-label=${c.name}>
@@ -4511,7 +4517,7 @@ async function defineCard() {
           border-radius: 10px;
           border: 1px solid var(--ltc-border);
           background: rgba(255, 255, 255, 0.04);
-          font-size: 0.8rem;
+          font-size: 0.875rem;
         }
         .dhead {
           display: flex;

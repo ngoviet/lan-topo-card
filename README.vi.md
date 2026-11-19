@@ -246,7 +246,7 @@ không có thì card hiện như trước.
 - Tiêu đề AP: thời gian chạy (`uptime_s`), biểu tượng ghim khi kênh ghim tay, `↻ %` phát lại của radio
   (đỏ khi ≥ 15 %), `⟳ reset …/ngày` khi > 2. Rê chuột vào radio xem kênh bận 64 s, công suất đặt, số AP lạ
   cùng kênh.
-- Ô thiết bị: tối đa 2 huy hiệu — `→T3 +37` (AP khác nghe to hơn 37 dB), `↻54%` (phát lại ≥ 30 %),
+- Ô thiết bị: tối đa 2 huy hiệu — `→T3 +37` (AP khác nghe to hơn 37 dB), `↻54%` (phát lại 5 phút gần nhất ≥ 30 %),
   `5G?` (máy có 5 GHz đang ở 2,4 GHz).
 - **Chạm/bấm một ô** (hoặc Enter) để mở khung chi tiết: tốc độ gửi/nhận, lưu lượng 5 phút, phát lại 5 phút /
   từ lúc nối, client health, AP nghe to hơn, MAC, hostname, chuẩn, kênh. Dùng được trên điện thoại.

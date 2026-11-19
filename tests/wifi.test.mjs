@@ -69,8 +69,11 @@ test("clientBadges: ưu tiên AP nghe to hơn, rồi retry, tối đa 2", () => 
     { kind: "louder", ap: "T2", gain: 25 },
     { kind: "retry", pct: 54 },
   ]);
-  assert.deepEqual(clientBadges({ retry_pct: 29.9 }), []);
-  assert.deepEqual(clientBadges({ retry_pct: 30, stuck_24: true }), [{ kind: "retry", pct: 30 }, { kind: "stuck" }]);
+  assert.deepEqual(clientBadges({ retry_5m: 29.9 }), []);
+  assert.deepEqual(clientBadges({ retry_5m: 30, stuck_24: true }), [{ kind: "retry", pct: 30 }, { kind: "stuck" }]);
+  // "Từ lúc nối" không bao giờ ra huy hiệu (số cũ, gây nhiễu — đo thật 17/55 máy ≥ 30 %).
+  assert.deepEqual(clientBadges({ retry_pct: 92.7 }), []);
+  assert.deepEqual(clientBadges({ retry_pct: 72.7, retry_5m: 2.4 }), []);
 });
 
 test("clientRetry: 5 phút trước, từ lúc nối sau, rỗng ⇒ null", () => {
