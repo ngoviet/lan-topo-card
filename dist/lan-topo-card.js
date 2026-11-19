@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.10.0";
+export const VERSION = "0.11.0";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -664,6 +664,62 @@ export function groupClients(clients, { by = "ap", sort = "name", ssid = null, b
   return [...groups.entries()]
     .sort((a, b) => naturalCompare(a[0], b[0]))
     .map(([name, items]) => ({ name, clients: items.sort(cmp) }));
+}
+
+/** "Aruba T2" → "T2" (tên AP ngắn trong huy hiệu). */
+export function shortAp(name) {
+  return String(name ?? "").replace(/^Aruba\s+/i, "");
+}
+
+/** Retry nên hiện: số 5 phút gần nhất nếu có, không thì số từ lúc nối (integration ≥ 0.2.0). */
+export function clientRetry(c) {
+  const v = c?.retry_5m ?? c?.retry_pct;
+  return Number.isFinite(Number(v)) && v !== null ? Number(v) : null;
+}
+
+export const RETRY_BADGE_PCT = 30;
+
+/**
+ * Tối đa 2 huy hiệu cho ô thiết bị, theo thứ tự ưu tiên: AP khác nghe to hơn (gợi ý việc làm được) →
+ * retry cao → máy 5 GHz kẹt 2,4 GHz. Mọi trường đều tuỳ chọn: integration cũ ⇒ không huy hiệu nào.
+ */
+export function clientBadges(c) {
+  const out = [];
+  if (c?.louder_ap && Number(c.louder_gain) > 0) out.push({ kind: "louder", ap: shortAp(c.louder_ap), gain: Number(c.louder_gain) });
+  // Huy hiệu CHỈ dùng retry 5 phút. Đo 20/11/2026 trên 55 máy thật: "từ lúc nối" ≥ 30 % ở 17 máy (kéo lên bởi
+  // lúc chập chờn cũ, vd 72,7 % trong khi 5 phút gần nhất 2,4 %), "5 phút" ≥ 30 % chỉ 2 máy ⇒ chỉ số này báo đúng.
+  const r5 = Number(c?.retry_5m);
+  if (c?.retry_5m !== null && c?.retry_5m !== undefined && Number.isFinite(r5) && r5 >= RETRY_BADGE_PCT) out.push({ kind: "retry", pct: Math.round(r5) });
+  if (c?.stuck_24) out.push({ kind: "stuck" });
+  return out.slice(0, 2);
+}
+
+/** Giây → "3n 17g" / "3d 17h" (đơn vị lấy từ bảng chuỗi). */
+export function fmtUptime(s, T = { d: "d", h: "h", m: "m" }) {
+  const v = Number(s);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  const d = Math.floor(v / 86400);
+  const h = Math.floor((v % 86400) / 3600);
+  const m = Math.floor((v % 3600) / 60);
+  if (d) return `${d}${T.d} ${h}${T.h}`;
+  if (h) return `${h}${T.h} ${m}${T.m}`;
+  return `${m}${T.m}`;
+}
+
+/** kbps → "850 kb/s" / "1.2 Mb/s". */
+export function fmtKbps(kbps) {
+  const v = Number(kbps);
+  if (!Number.isFinite(v) || kbps === null) return null;
+  return v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)} Mb/s` : `${Math.round(v)} kb/s`;
+}
+
+/** Radio có điều đáng báo? Reset > 2 lần/ngày, retry ≥ 15 %. */
+export function radioWarnings(r) {
+  const w = [];
+  if (Number(r?.resets_per_day) > 2) w.push({ kind: "resets", value: Number(r.resets_per_day) });
+  const retry = r?.retry_5m ?? r?.retry_pct;
+  if (Number.isFinite(Number(retry)) && retry !== null && Number(retry) >= 15) w.push({ kind: "retry", value: Math.round(Number(retry)) });
+  return w;
 }
 
 // ═══════════════════════════════ Ai đang dùng nhiều ═══════════════════════════════
@@ -1811,6 +1867,35 @@ const STRINGS = {
     same_channel: (ch, who) => `trùng kênh ${ch} với ${who}`,
     weak: (n) => `${n} máy sóng yếu`,
     no_entity: "không thấy entity",
+    up: "chạy",
+    unit: { d: "n", h: "g", m: "p" },
+    retry: "phát lại",
+    resets_day: (v) => `reset ${v}/ngày`,
+    pinned: "kênh ghim tay",
+    arm: "ARM tự chọn kênh",
+    stale: "số cũ (lần đọc chi tiết lỗi)",
+    louder: (ap, g) => `${ap} nghe to hơn ${g} dB`,
+    stuck: "có 5 GHz, đang ở 2,4",
+    detail_age: (t) => `chi tiết lúc ${t}`,
+    d_rate: "Tốc độ gửi / nhận",
+    d_traffic: "Lưu lượng 5 phút",
+    d_retry: "Phát lại 5 phút / từ lúc nối",
+    d_health: "Client health (C/R)",
+    d_louder: "AP nghe to hơn",
+    d_louder_hint: "Ngắt máy này để nó chọn lại AP: aruba-axi plan rebalance",
+    d_stuck: "Máy có 5 GHz nhưng đang ở 2,4 GHz",
+    d_net: "IP · SSID",
+    d_ident: "MAC · hostname · hệ điều hành",
+    d_radio: "Chuẩn · kênh · AP",
+    d_close: "Đóng",
+    alerts: {
+      radio_resets: (a) => `${shortAp(a.ap)} ${a.band} GHz reset radio ${a.value} lần/ngày`,
+      radio_retry: (a) => `${shortAp(a.ap)} ${a.band} GHz phát lại ${Math.round(a.value)}% (5 phút)`,
+      open_network: (a) => `Mạng mở "${a.ssid}" ${a.value} dBm kênh ${a.channel} (cạnh ${shortAp(a.ap)})`,
+      louder_ap: (a) => `${a.value} máy bám AP xa trong khi AP khác nghe to hơn`,
+      stuck_24: (a) => `${a.value} máy có 5 GHz đang ở 2,4 GHz`,
+      detail_failed: (a) => `Không đọc được chi tiết ${shortAp(a.ap)}`,
+    },
   },
   en: {
     ports_up: (n, m) => `${n}/${m} ports up`,
@@ -1867,6 +1952,35 @@ const STRINGS = {
     same_channel: (ch, who) => `same channel ${ch} as ${who}`,
     weak: (n) => `${n} weak signal`,
     no_entity: "entity not found",
+    up: "up",
+    unit: { d: "d", h: "h", m: "m" },
+    retry: "retry",
+    resets_day: (v) => `${v} resets/day`,
+    pinned: "channel pinned",
+    arm: "ARM picks the channel",
+    stale: "old numbers (detail read failed)",
+    louder: (ap, g) => `${ap} hears it ${g} dB louder`,
+    stuck: "5 GHz-capable, on 2.4",
+    detail_age: (t) => `detail at ${t}`,
+    d_rate: "Tx / Rx rate",
+    d_traffic: "Traffic, last 5 min",
+    d_retry: "Retry, 5 min / since connect",
+    d_health: "Client health (C/R)",
+    d_louder: "Heard louder by",
+    d_louder_hint: "Disconnect it so it re-picks an AP: aruba-axi plan rebalance",
+    d_stuck: "5 GHz-capable device sitting on 2.4 GHz",
+    d_net: "IP · SSID",
+    d_ident: "MAC · hostname · OS",
+    d_radio: "PHY · channel · AP",
+    d_close: "Close",
+    alerts: {
+      radio_resets: (a) => `${shortAp(a.ap)} ${a.band} GHz radio resets ${a.value}/day`,
+      radio_retry: (a) => `${shortAp(a.ap)} ${a.band} GHz retry ${Math.round(a.value)}% (5 min)`,
+      open_network: (a) => `Open network "${a.ssid}" ${a.value} dBm ch ${a.channel} (near ${shortAp(a.ap)})`,
+      louder_ap: (a) => `${a.value} device(s) on a far AP while another hears them louder`,
+      stuck_24: (a) => `${a.value} 5 GHz-capable device(s) on 2.4 GHz`,
+      detail_failed: (a) => `Detail of ${shortAp(a.ap)} unreadable`,
+    },
   },
 };
 
@@ -3916,6 +4030,7 @@ async function defineCard() {
         _band: { state: true },
         _narrow: { state: true },
         _toggled: { state: true },
+        _sel: { state: true },
       };
     }
 
@@ -3998,10 +4113,23 @@ async function defineCard() {
           ${Object.entries(ssids).map(([name, n]) => this._chip(`${name} · ${n}`, this._ssid === name, () => (this._ssid = this._ssid === name ? null : name)))}
           ${bands.map((b) => this._chip(`${b} GHz`, this._band === b, () => (this._band = this._band === b ? null : b), b === "5" ? "#a78bfa" : "#38bdf8"))}
         </div>
+        ${this._alerts(st.attributes.alerts, st.attributes.detail_updated, T)}
         <div class="groups">
           ${groups.map((g) => this._renderGroup(g, by === "ap" ? aps[g.name] : null, overlap[g.name], T))}
         </div>
       </ha-card>`;
+    }
+
+    // Cảnh báo cấp cụm (integration ≥ 0.2.0). Không có ⇒ không vẽ gì.
+    _alerts(alerts, updated, T) {
+      const list = (alerts || []).filter((a) => T.alerts?.[a.code]);
+      if (!list.length) return "";
+      const when = updated ? new Date(updated) : null;
+      const age = when && !Number.isNaN(when.getTime()) ? when.toLocaleTimeString(this.hass?.locale?.language || undefined, { hour: "2-digit", minute: "2-digit" }) : null;
+      return html`<div class="alerts" role="list">
+        ${list.map((a) => html`<span class="alert ${a.code}" role="listitem"><ha-icon icon=${a.code === "open_network" ? "mdi:wifi-lock-open" : a.code === "louder_ap" ? "mdi:swap-horizontal" : "mdi:alert"}></ha-icon>${T.alerts[a.code](a)}</span>`)}
+        ${age ? html`<span class="age">${T.detail_age(age)}</span>` : ""}
+      </div>`;
     }
 
     _renderGroup(group, ap, overlap, T) {
@@ -4012,35 +4140,88 @@ async function defineCard() {
           <ha-icon class="chev" icon=${open ? "mdi:chevron-down" : "mdi:chevron-right"}></ha-icon>
           <ha-icon icon=${ap ? "mdi:access-point" : "mdi:wifi"}></ha-icon>
           <span class="gname">${group.name}</span>
-          <span class="gsub">${T.clients(group.clients.length)}${ap?.ip ? ` · ${ap.ip}` : ""}</span>
+          <span class="gsub">${T.clients(group.clients.length)}${ap?.ip ? ` · ${ap.ip}` : ""}${fmtUptime(ap?.uptime_s, T.unit) ? ` · ${T.up} ${fmtUptime(ap.uptime_s, T.unit)}` : ""}</span>
+          ${ap?.stale ? html`<span class="stale" title=${T.stale}><ha-icon icon="mdi:clock-alert-outline"></ha-icon></span>` : ""}
           ${ap ? (ap.radios || []).map((r) => this._radio(r, T)) : ""}
           ${(overlap || []).map((o) => html`<span class="warn"><ha-icon icon="mdi:alert"></ha-icon>${o.band} GHz · ${T.same_channel(o.channel, o.with.join(", "))}</span>`)}
           ${weak ? html`<span class="weak">${T.weak(weak)}</span>` : ""}
         </div>
-        ${open ? html`<div class="clients">${group.clients.map((c) => this._client(c))}</div>` : ""}
+        ${open ? html`<div class="clients">${group.clients.map((c) => this._client(c, T))}</div>${this._detail(group.clients.find((c) => c.mac && c.mac === this._sel), T)}` : ""}
       </div>`;
     }
 
     _radio(r, T) {
       const util = Number(r.utilization) || 0;
       const col = util >= 60 ? "#ef4444" : util >= 35 ? "#f59e0b" : "#22c55e";
-      return html`<span class="radio" title=${`${r.band} GHz · ch ${r.channel} · ${r.power_dbm ?? "?"} dBm · noise ${r.noise_dbm ?? "?"} dBm`}>
-        <b>${r.band}G</b> ch${r.channel}
+      const warns = radioWarnings(r);
+      const retry = r.retry_5m ?? r.retry_pct;
+      const tip = [
+        `${r.band} GHz · ch ${r.channel} · ${r.power_dbm ?? "?"} dBm · noise ${r.noise_dbm ?? "?"} dBm`,
+        r.pinned === true ? `${T.pinned}${r.set_power !== undefined ? ` · ${r.set_power} dBm` : ""}` : r.pinned === false ? T.arm : null,
+        r.busy_64s !== undefined ? `${T.busy} 64 s: ${r.busy_64s}%` : null,
+        retry !== undefined && retry !== null ? `${T.retry}: ${retry}%` : null,
+        r.resets !== undefined ? `reset: ${r.resets}${r.resets_per_day !== undefined ? ` (${T.resets_day(r.resets_per_day)})` : ""}` : null,
+        r.cochannel !== undefined ? `co-channel: ${r.cochannel}${r.cochannel_loudest !== undefined ? ` · ${r.cochannel_loudest} dBm` : ""}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      return html`<span class="radio" title=${tip}>
+        <b>${r.band}G</b> ch${r.channel}${r.pinned === true ? html`<ha-icon class="pin" icon="mdi:pin" aria-label=${T.pinned}></ha-icon>` : ""}
         <span class="bar"><i style="width:${Math.min(100, util)}%;background:${col}"></i></span>${util}% ${T.busy}
+        ${retry !== undefined && retry !== null ? html`<span class=${Number(retry) >= 15 ? "rbad" : "rok"}>↻ ${Math.round(Number(retry))}%</span>` : ""}
+        ${warns.filter((w) => w.kind === "resets").map((w) => html`<span class="rbad">⟳ ${T.resets_day(w.value)}</span>`)}
       </span>`;
     }
 
-    _client(c) {
+    _badge(b, T) {
+      if (b.kind === "louder") return html`<span class="bdg louder" title=${T.louder(b.ap, b.gain)}>→${b.ap} +${b.gain}</span>`;
+      if (b.kind === "retry") return html`<span class="bdg retry" title=${`${T.retry} ${b.pct}%`}>↻${b.pct}%</span>`;
+      return html`<span class="bdg stuck" title=${T.stuck}>5G?</span>`;
+    }
+
+    _pick(c) {
+      if (!c.mac) return;
+      this._sel = this._sel === c.mac ? null : c.mac;
+    }
+
+    // Khung chi tiết (chạm/bấm một ô): mọi trường tuỳ chọn — thiếu thì bỏ dòng, không in "undefined".
+    _detail(c, T) {
+      if (!c) return "";
+      const rows = [];
+      const both = (a, b, unit = "") => (a === undefined && b === undefined ? null : `${a ?? "—"} / ${b ?? "—"}${unit}`);
+      const rate = both(c.tx_rate, c.rx_rate, " Mbps");
+      if (rate) rows.push([T.d_rate, rate]);
+      const tr = c.tx_kbps !== undefined || c.rx_kbps !== undefined ? `↑ ${fmtKbps(c.tx_kbps) ?? "—"} · ↓ ${fmtKbps(c.rx_kbps) ?? "—"}` : null;
+      if (tr) rows.push([T.d_traffic, tr]);
+      const rt = both(c.retry_5m !== undefined ? `${c.retry_5m}%` : undefined, c.retry_pct !== undefined ? `${c.retry_pct}%` : undefined);
+      if (rt) rows.push([T.d_retry, rt]);
+      if (c.health) rows.push([T.d_health, c.health]);
+      if (c.louder_ap) rows.push([T.d_louder, `${shortAp(c.louder_ap)} (+${c.louder_gain} dB) — ${T.d_louder_hint}`]);
+      if (c.stuck_24) rows.push([T.d_stuck, "✓"]);
+      // IP + SSID nhắc lại ở đây: trong ô 230 px chúng hay bị cắt bằng "…" (nhất là khi có huy hiệu).
+      if (c.ip || c.essid) rows.push([T.d_net, [c.ip, c.essid].filter(Boolean).join(" · ")]);
+      rows.push([T.d_ident, [c.mac, c.hostname, c.os && c.os !== "NOFP" ? c.os : null].filter(Boolean).join(" · ")]);
+      rows.push([T.d_radio, [c.phy, c.channel ? `ch ${c.channel}` : null, c.ap].filter(Boolean).join(" · ")]);
+      return html`<div class="detail" role="region" aria-label=${c.name}>
+        <div class="dhead"><b>${c.name}</b><button class="dclose" @click=${() => (this._sel = null)}>${T.d_close}</button></div>
+        <dl>${rows.map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>
+      </div>`;
+    }
+
+    _client(c, T) {
       const color = qualityColor(c.quality, c.signal);
       const bars = signalBars(c.signal);
+      const badges = clientBadges(c);
       const tip = [c.name, c.hostname && c.hostname !== c.name ? `host: ${c.hostname}` : null, c.mac, c.os && c.os !== "NOFP" ? c.os : null, c.phy ? `PHY ${c.phy} · ch ${c.channel}` : null, c.ap]
         .filter(Boolean)
         .join("\n");
-      return html`<div class="cl" style="--c:${color}" title=${tip}>
+      const sel = c.mac && c.mac === this._sel;
+      return html`<div class="cl ${sel ? "sel" : ""}" style="--c:${color}" title=${tip} role="button" tabindex="0" aria-expanded=${sel ? "true" : "false"}
+        @click=${() => this._pick(c)} @keydown=${(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), this._pick(c))}>
         <span class="sig">${[1, 2, 3, 4].map((i) => html`<i class=${i <= bars ? "on" : ""} style="height:${3 + i * 3}px"></i>`)}</span>
         <div class="cmain">
           <div class="cname">${c.name}</div>
-          <div class="csub">${[c.ip, c.essid].filter(Boolean).join(" · ")}</div>
+          <div class="csub">${badges.map((b) => this._badge(b, T))}${[c.ip, c.essid].filter(Boolean).join(" · ")}</div>
         </div>
         <div class="cright">
           ${c.band ? html`<span class="band b${String(c.band).replace(".", "")}">${c.band}</span>` : ""}
@@ -4219,7 +4400,7 @@ async function defineCard() {
           text-overflow: ellipsis;
         }
         .csub {
-          font-size: 0.7rem;
+          font-size: 0.75rem;
           color: var(--ltc-dim);
           white-space: nowrap;
           overflow: hidden;
@@ -4236,9 +4417,10 @@ async function defineCard() {
         .cright small {
           color: var(--ltc-dim);
           margin-left: 1px;
+          font-size: 12px;
         }
         .band {
-          font-size: 0.7rem;
+          font-size: 0.75rem;
           font-weight: 700;
           padding: 1px 4px;
           border-radius: 5px;
@@ -4254,7 +4436,128 @@ async function defineCard() {
           color: var(--c);
         }
         .snr small {
-          font-size: 11px;
+          font-size: 12px;
+        }
+        .alerts {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 6px 12px;
+          padding: 2px 16px 6px;
+          font-size: 0.8rem;
+        }
+        .alert {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          color: #fbbf24;
+        }
+        .alert.louder_ap,
+        .alert.stuck_24 {
+          color: #7dd3fc;
+        }
+        .alert ha-icon {
+          --mdc-icon-size: 15px;
+          color: currentColor;
+          filter: none;
+        }
+        .alerts .age {
+          color: var(--ltc-dim);
+        }
+        .stale ha-icon {
+          --mdc-icon-size: 16px;
+          color: #fbbf24;
+          filter: none;
+        }
+        .radio ha-icon.pin {
+          --mdc-icon-size: 12px;
+          color: var(--ltc-dim);
+          filter: none;
+          margin-left: -3px;
+        }
+        .radio .rok {
+          color: var(--ltc-dim);
+        }
+        .radio .rbad {
+          color: #f87171;
+          font-weight: 600;
+        }
+        .cl {
+          cursor: pointer;
+        }
+        .cl:focus-visible {
+          outline: 2px solid #7dd3fc;
+          outline-offset: 1px;
+        }
+        .cl.sel {
+          background: color-mix(in srgb, var(--c) 14%, transparent);
+        }
+        .bdg {
+          display: inline-block;
+          font-size: 0.75rem;
+          font-weight: 700;
+          padding: 0 4px;
+          margin-right: 4px;
+          border-radius: 4px;
+          border: 1px solid currentColor;
+          vertical-align: 1px;
+        }
+        .bdg.louder {
+          color: #7dd3fc;
+        }
+        .bdg.retry {
+          color: #f87171;
+        }
+        .bdg.stuck {
+          color: #c4b5fd;
+        }
+        .detail {
+          margin-top: 8px;
+          padding: 8px 12px 10px;
+          border-radius: 10px;
+          border: 1px solid var(--ltc-border);
+          background: rgba(255, 255, 255, 0.04);
+          font-size: 0.875rem;
+        }
+        .dhead {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          margin-bottom: 6px;
+        }
+        .dclose {
+          font: inherit;
+          font-size: 0.8rem;
+          color: var(--ltc-fg);
+          background: transparent;
+          border: 1px solid var(--ltc-border);
+          border-radius: 8px;
+          padding: 4px 12px;
+          min-height: 32px;
+          cursor: pointer;
+        }
+        .detail dl {
+          display: grid;
+          grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+          gap: 4px 14px;
+          margin: 0;
+        }
+        .detail dt {
+          color: var(--ltc-dim);
+        }
+        .detail dd {
+          margin: 0;
+          overflow-wrap: anywhere;
+          font-variant-numeric: tabular-nums;
+        }
+        @media (max-width: 480px) {
+          .detail dl {
+            grid-template-columns: minmax(0, 1fr);
+          }
+          .detail dd {
+            margin-bottom: 4px;
+          }
         }
       `];
     }

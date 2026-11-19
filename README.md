@@ -241,6 +241,18 @@ sort: name        # name | signal (weakest first) | speed
 | `collapse` | `auto` | `auto`: groups start collapsed when the card is narrower than `breakpoint` (600 px, phones); `true` / `false`: always collapsed / open. Tap a group header to toggle |
 | `title`, `language` | `Wi-Fi`, HA language | |
 
+**Detail (aruba_instant_ha ≥ 0.2.0, read every 5 minutes):** every field below is optional — with an older
+integration the card looks as before.
+
+- Alert row under the chips: radio resets often, high radio retry, strong open network nearby, devices on a
+  far AP, 5 GHz-capable devices on 2.4 GHz, AP whose detail could not be read; plus when the detail was read.
+- AP header: uptime (`uptime_s`), a pin when the channel is pinned, radio `↻ %` retry (red at ≥ 15 %),
+  `⟳ resets/day` when > 2. Hover a radio for 64 s busy, set power and foreign BSS on the same channel.
+- Client tile: at most 2 badges — `→T3 +37` (another AP hears it 37 dB louder), `↻54%` (retry over the last 5 minutes ≥ 30 %),
+  `5G?` (5 GHz-capable device on 2.4 GHz).
+- **Tap/click a tile** (or Enter) to open the detail panel: Tx/Rx rate, traffic over 5 minutes, retry 5 min /
+  since connect, client health, louder AP, MAC, host name, PHY, channel. Works on phones.
+
 ## Colors
 
 | 10 Gbps | 2.5 Gbps | 1 Gbps | 100 Mbps | 10 Mbps | no link |
