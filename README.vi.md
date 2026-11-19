@@ -127,7 +127,9 @@ edges:
 | `legend` | `true` | Hiện chú thích màu |
 | `top` | `5` | Bảng "Đang dùng mạng nhiều nhất" dưới sơ đồ: thiết bị xếp theo tổng ↓+↑ (thanh tỉ lệ so với máy đứng đầu); `0` hoặc `false` để ẩn |
 | `warm_mbps`, `hot_mbps` | `10`, `50` | Thẻ cổng sáng cam khi tổng ↓+↑ vượt `warm_mbps`, nhấp nháy đỏ khi vượt `hot_mbps`; thanh lưu lượng ở đáy mỗi thẻ dài tỉ lệ thẳng theo ↓+↑ so với ô bận nhất đang hiện (phần ↓ màu cổng, phần ↑ màu hồng; `warm_mbps` là mức sàn của thang). Mỗi dây gồm 2 sợi ↓ và ↑, mỗi sợi dày theo lưu lượng của chiều đó (thang log, 100 kbps → mảnh nhất, 1 Gbps → dày nhất) trên suốt phần chạy ngoài thẻ; chỉ đoạn ngắn trong thẻ, đi giữa các ô cổng, là luôn mảnh |
-| `motion` | `on` | `on`: hạt luôn chạy (hạt là thông tin lưu lượng); `auto`: dừng khi hệ điều hành bật giảm chuyển động (Windows tắt *Animation effects*); `off`: không bao giờ chạy |
+| `motion` | `on` | `on`: hạt luôn chạy (hạt là thông tin lưu lượng); `auto`: dừng khi hệ điều hành bật giảm chuyển động (Windows tắt *Animation effects*); `off`: không bao giờ chạy. Thẻ bị cuộn khuất thì hạt tạm dừng |
+| `lldp` | `true` | Sửa cổng của cạnh theo LLDP khi YAML đã cũ (xem *Edge*); `false`: luôn dùng đúng YAML |
+| `backbone` | `auto` | Dây trục chính (hai đầu đều là `router` hoặc `switch`) có thêm ống bọc hai viền cùng màu tốc độ link, nhìn là thấy trục mà màu vẫn là tốc độ, độ dày sợi vẫn là lưu lượng. `false` để tắt |
 | `language` | theo HA | `vi` hoặc `en` |
 
 ### Node
@@ -153,7 +155,7 @@ edges:
 
 **`routeros`**: `{ adapter: routeros, device: <tên hoặc id device>, platform: routeros_ha }`.
 Dùng device registry + entity registry; entity có thuộc tính `port` thành cổng. Nếu có nhiều device trùng tên, card
-chọn device có entity của `platform`. Đặt `platform: null` để nhận entity của mọi integration.
+chọn device có entity của `platform`. Đặt `platform: null` để nhận entity của mọi integration. Không có device nào tên đó thì thẻ dò theo tiền tố entity id, nhưng chỉ nhận khi mọi entity cổng khớp cùng thuộc một device (tiền tố `crs310_` sẽ nuốt cả `crs310_2_*`).
 
 **`netgear_plus`**: `{ adapter: netgear_plus, prefix: gs108pe }` đọc `binary_sensor.<prefix>_port_N_status`,
 `sensor.<prefix>_port_N_link_speed`, `_receiving`, `_sending` và `switch.<prefix>_port_N` (PoE, chỉ đọc).
@@ -179,8 +181,12 @@ cố định (`1G`, `100M`, `2500`).
 | `down`, `up` | Sensor khai báo tay (cộng dồn), được ưu tiên hơn cổng |
 | `speed` | Tốc độ link để tô màu khi cổng không báo |
 | `label` | `false` để ẩn nhãn lưu lượng |
+| `lldp` | `false` để tắt việc sửa cổng theo LLDP cho riêng cạnh này |
+| `backbone` | `true` / `false`: bật hoặc tắt ống bọc trục chính cho riêng cạnh này |
 
 *Xuống* luôn là chiều đi ra xa Internet. Cổng ghi ở `from_port`/`to_port` được ẩn khỏi cột thiết bị.
+
+**Cổng đi theo LLDP khi YAML đã cũ.** Đổi dây giữa hai switch (vd từ `ether1` sang `sfp-sfpplus2`) thì thẻ tự theo: khi các cổng khai ở một đầu cạnh đều mất link (hoặc chưa khai) và đúng một cổng đang có link ở đầu đó có láng giềng LLDP mang tên node bên kia (`name`, `ports.device` hoặc `id`), dây chuyển sang cổng đó. Chỉ tính `device_source: lldp`, không bao giờ tính comment DHCP. Cổng khai còn link thì luôn thắng; cạnh có `down`/`up` tay hoặc nhiều cổng mỗi đầu thì giữ nguyên; khớp mơ hồ thì không đổi gì; cạnh đã sửa giữ nguyên khi cổng còn link dù LLDP chập chờn. Vẫn nên sửa YAML cho khớp.
 
 Mẫu đầy đủ vẽ mỗi cổng ở `from_port`/`to_port` một dây. Cạnh có nhiều cổng được tách thành nhiều dây, mỗi dây theo lưu lượng cổng của nó; đầu không khai cổng thì dây vào cạnh thẻ. Khi mở node, dây tới từng thiết bị cuối cũng ra từ đúng ô cổng, và danh sách thiết bị xếp theo vị trí ô để dây không cắt nhau. Rê chuột lên ô cổng hoặc dây để làm sáng cả đường, bấm ô để mở chi tiết cổng. Kiểu Tâm – viền và Vòng cung hiện dải thành các chấm trạng thái nhỏ (không rê chuột, không bấm được); Thẻ và Danh sách dùng ô to để chạm.
 
