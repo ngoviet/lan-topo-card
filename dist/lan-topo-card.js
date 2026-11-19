@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.8.4";
+export const VERSION = "0.9.0";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -467,6 +467,22 @@ export function edgeTraffic(edge, portsByNode, states) {
   const linkedAll = [...parentPorts, ...childPorts].map((p) => p.linked);
   const linked = linkedAll.length ? linkedAll.some((v) => v !== false) : true;
   return { down, up, speedMbps: speed, linked, entities };
+}
+
+const BACKBONE_TYPES = new Set(["router", "switch"]);
+/** Ống bọc rộng hơn ống lưu lượng bao nhiêu px (hai viền ~1,6 px + khe ~1,6 px mỗi bên). */
+const TRUNK_PAD = 7;
+/** Bề dày mỗi viền của ống bọc (px). */
+const TRUNK_RAIL = 1.6;
+
+/**
+ * Cạnh có phải trục chính không: mặc định là cạnh nối hai node `router`/`switch`. `backbone: true|false`
+ * trên cạnh ghi đè; `backbone: false` trên thẻ tắt hẳn. Trục chính được vẽ thêm ống bọc hai viền.
+ */
+export function isBackbone(topo, edge, option = "auto") {
+  if (option === false) return false;
+  if (edge.backbone === true || edge.backbone === false) return edge.backbone;
+  return BACKBONE_TYPES.has(topo.nodes.get(edge.from)?.type) && BACKBONE_TYPES.has(topo.nodes.get(edge.to)?.type);
 }
 
 /** Tên mà LLDP của node khác có thể gọi node này: name, ports.device, id (không phân biệt hoa thường). */
@@ -1738,6 +1754,7 @@ const STRINGS = {
     down_dev: "↓ về phía thiết bị",
     up_dev: "↑ từ thiết bị",
     no_link: "Không có link",
+    backbone: "trục chính",
     poe: "PoE",
     empty: "trống",
     fault: "lỗi: phải có link",
@@ -1792,6 +1809,7 @@ const STRINGS = {
     down_dev: "↓ towards device",
     up_dev: "↑ from device",
     no_link: "No link",
+    backbone: "backbone",
     poe: "PoE",
     empty: "empty",
     fault: "fault: should be linked",
@@ -1966,6 +1984,15 @@ async function defineCard() {
     .legend i.fault {
       background: rgba(239, 68, 68, 0.12);
       border: 1px solid #ef4444;
+    }
+    /* Ống bọc trục chính: hai viền song song, lõi trong suốt (giống hình trên sơ đồ). */
+    .legend i.bb {
+      width: 18px;
+      height: 8px;
+      border-radius: 4px;
+      background: transparent;
+      border: 1.5px solid #cbd5e1;
+      box-sizing: border-box;
     }
     .legend i.slow {
       --c: #9ca3af;
@@ -2280,7 +2307,7 @@ async function defineCard() {
             ${lay
               ? html`<div
                   class="stage"
-                  style="width:${lay.width}px;height:${lay.height}px;transform:translate(${lay.offsetX}px,0) scale(${lay.scale})"
+                  style="width:${lay.width}px;height:${lay.height}px;transform:translate(${lay.offsetX}px,0) scale(${lay.scale});--ltc-up:${Math.min(1.15, 1 / Math.min(1, lay.scale || 1)).toFixed(3)}"
                   @mouseover=${this._onHover}
                   @mouseleave=${() => this._focusWire(null)}
                 >
@@ -2762,6 +2789,9 @@ async function defineCard() {
       return html`<div class="legend">
         ${SPEED_TIERS.map((t) => html`<span><i style="--c:${t.color}"></i>${t[lang]}</span>`)}
         <span><i style="--c:${NO_LINK_COLOR}"></i>${T.no_link}</span>
+        ${this._lay?.links.some((l) => l.kind === "node" && isBackbone(this._topo, l.edge, this._config.backbone))
+          ? html`<span><i class="bb"></i>${T.backbone}</span>`
+          : ""}
         ${this._lay?.boxes.some((b) => b.face)
           ? html`<span><i class="off"></i>${T.empty}</span>
               <span><i class="fault"></i>${T.fault}</span>
@@ -2787,7 +2817,7 @@ async function defineCard() {
      * giữa các ô; phần ngoài thẻ là 2 sợi ↓/↑ song song, mỗi sợi dày theo lưu lượng của chiều đó,
      * tối đa vừa khoảng cách tới dây bên cạnh (`wire.room`).
      */
-    _wireEdges(want, l, { down, up, color, w, hot, lvD, lvU, r1 }) {
+    _wireEdges(want, l, { down, up, color, w, hot, lvD, lvU, r1, trunk }) {
       const wk = l.key;
       const { inner, outer, room } = l.wire;
       if (inner.length) {
@@ -2805,7 +2835,15 @@ async function defineCard() {
       const ou = trafficWidth(up, cap, 0.5);
       const path = (t) => linkPath({ pts: offsetPts(outer, t) });
       // Ống mờ ôm cả 2 sợi (lệch về phía sợi dày hơn), không mảnh hơn mức tốc độ link.
-      want.set(`${l.key}|ob`, { d: path((od - ou) / 2), cls: `base wire ${hot}`, style: `--c:${color};--w:${r1(Math.max(w, od + ou + 1))}px`, wk });
+      const tube = Math.max(w, od + ou + 1);
+      // Ống bọc chỉ ở đoạn ngoài thẻ; không rộng quá khoảng cách tới dây bên cạnh.
+      if (trunk) {
+        const cw = Math.min(tube + TRUNK_PAD, Math.max(tube + 2 * TRUNK_RAIL + 1, room * 2 - 1));
+        const cd = path((od - ou) / 2);
+        want.set(`${l.key}|ock`, { d: cd, cls: "casing core", style: `--w:${r1(cw - 2 * TRUNK_RAIL)}px`, wk, under: true });
+        want.set(`${l.key}|oc`, { d: cd, cls: "casing", style: `--c:${color};--w:${r1(cw)}px`, wk, under: true });
+      }
+      want.set(`${l.key}|ob`, { d: path((od - ou) / 2), cls: `base wire ${hot}`, style: `--c:${color};--w:${r1(tube)}px`, wk });
       want.set(`${l.key}|od`, { d: path(od / 2 + 0.4), cls: `flow down lv${lvD}`, style: `--c:${color};--fw:${r1(od)}px`, wk });
       want.set(`${l.key}|ou`, { d: path(-(ou / 2 + 0.4)), cls: `flow up lv${lvU}`, style: `--c:${color};--fw:${r1(ou)}px`, wk });
       want.set(`${l.key}|p`, { d: l.plugs.map(([x, y]) => `M${r1(x)} ${r1(y)}h0`).join(""), cls: "plug", style: `--c:${color}`, wk });
@@ -2829,7 +2867,9 @@ async function defineCard() {
         let color;
         let w;
         let hot = "";
+        let trunk = false;
         if (l.kind === "node") {
+          trunk = isBackbone(this._topo, l.edge, this._config.backbone);
           const whole = this._traffic.get(l.edge.key) || {};
           const t = l.wire ? wireTraffic(l.edge, l.wire, l.wire.count, this._portsByNode, whole) : whole;
           down = t.down;
@@ -2851,7 +2891,7 @@ async function defineCard() {
         const lvD = flowLevel(down, this._idleBps);
         const lvU = flowLevel(up, this._idleBps);
         if (l.wire) {
-          this._wireEdges(want, l, { down, up, color, w, hot, lvD, lvU, r1 });
+          this._wireEdges(want, l, { down, up, color, w, hot, lvD, lvU, r1, trunk });
           continue;
         }
         // Ống mờ = dung lượng link; 2 sợi ↓/↑ dày theo lưu lượng thật (log), tách 2 bên ống.
@@ -2873,6 +2913,11 @@ async function defineCard() {
               : upright
               ? `translate(${sign * off} 0)`
               : `translate(0 ${sign * off})`;
+        if (trunk) {
+          // Lõi tạo trước → bị viền chèn xuống dưới nó; cả hai luôn nằm dưới mọi sợi.
+          want.set(`${l.key}|ck`, { d, cls: "casing core", style: `--w:${r1(base + TRUNK_PAD - 2 * TRUNK_RAIL)}px`, under: true });
+          want.set(`${l.key}|c`, { d, cls: "casing", style: `--c:${color};--w:${r1(base + TRUNK_PAD)}px`, under: true });
+        }
         want.set(`${l.key}|b`, { d, cls: `base ${hot}`, style: `--c:${color};--w:${r1(base)}px` });
         want.set(`${l.key}|d`, { d, cls: `flow down lv${lvD}`, style: `--c:${color};--fw:${r1(wd)}px`, tr: tr(-1) });
         want.set(`${l.key}|u`, { d, cls: `flow up lv${lvU}`, style: `--c:${color};--fw:${r1(wu)}px`, tr: tr(1) });
@@ -2888,7 +2933,9 @@ async function defineCard() {
           el = document.createElementNS(SVG_NS, "path");
           el.dataset.k = k;
           if (a.wk) el.dataset.w = a.wk;
-          svg.appendChild(el);
+          // Ống bọc vẽ dưới mọi sợi (phần tử tạo sau nằm trên → chèn lên đầu thay vì cuối).
+          if (a.under) svg.insertBefore(el, svg.firstChild);
+          else svg.appendChild(el);
         }
         if (el.getAttribute("d") !== a.d) el.setAttribute("d", a.d);
         if (el.getAttribute("class") !== a.cls) el.setAttribute("class", a.cls);
@@ -2974,6 +3021,18 @@ async function defineCard() {
         path {
           fill: none;
           stroke-linecap: round;
+        }
+        /* Ống bọc trục chính: nét rộng màu tốc độ, rồi lõi màu nền đè giữa → còn hai viền song song. */
+        path.casing {
+          stroke: var(--c);
+          stroke-opacity: 0.5;
+          stroke-width: var(--w);
+          stroke-linecap: butt;
+          transition: stroke-width 0.6s;
+        }
+        path.casing.core {
+          stroke: #0b1426;
+          stroke-opacity: 1;
         }
         path.base {
           stroke: var(--c);
@@ -3229,7 +3288,8 @@ async function defineCard() {
           min-width: 0;
           padding: 0;
           border-radius: 3px;
-          font-size: 12px;
+          /* Sơ đồ bị thu (scale < 1) thì chữ ô cổng to bù lại, tối đa ×1,15, để hiện ra không dưới 12 px. */
+          font-size: calc(12px * var(--ltc-up, 1));
           line-height: 1;
         }
         .pface.led .pt {
@@ -3491,7 +3551,7 @@ async function defineCard() {
         }
         .port .speed {
           flex: none;
-          font-size: 0.75rem;
+          font-size: calc(0.75rem * var(--ltc-up, 1));
           font-weight: 600;
           line-height: 1;
           padding: 2px 4px;
@@ -3537,7 +3597,7 @@ async function defineCard() {
           display: flex;
           flex-direction: column;
           align-items: center;
-          font-size: 0.75rem;
+          font-size: calc(0.75rem * var(--ltc-up, 1));
           line-height: 1.25;
           padding: 2px 6px;
           border-radius: 8px;

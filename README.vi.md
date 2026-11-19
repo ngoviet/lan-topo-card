@@ -129,6 +129,7 @@ edges:
 | `warm_mbps`, `hot_mbps` | `10`, `50` | Thẻ cổng sáng cam khi tổng ↓+↑ vượt `warm_mbps`, nhấp nháy đỏ khi vượt `hot_mbps`; thanh lưu lượng ở đáy mỗi thẻ dài tỉ lệ thẳng theo ↓+↑ so với ô bận nhất đang hiện (phần ↓ màu cổng, phần ↑ màu hồng; `warm_mbps` là mức sàn của thang). Mỗi dây gồm 2 sợi ↓ và ↑, mỗi sợi dày theo lưu lượng của chiều đó (thang log, 100 kbps → mảnh nhất, 1 Gbps → dày nhất) trên suốt phần chạy ngoài thẻ; chỉ đoạn ngắn trong thẻ, đi giữa các ô cổng, là luôn mảnh |
 | `motion` | `on` | `on`: hạt luôn chạy (hạt là thông tin lưu lượng); `auto`: dừng khi hệ điều hành bật giảm chuyển động (Windows tắt *Animation effects*); `off`: không bao giờ chạy. Thẻ bị cuộn khuất thì hạt tạm dừng |
 | `lldp` | `true` | Sửa cổng của cạnh theo LLDP khi YAML đã cũ (xem *Edge*); `false`: luôn dùng đúng YAML |
+| `backbone` | `auto` | Dây trục chính (hai đầu đều là `router` hoặc `switch`) có thêm ống bọc hai viền cùng màu tốc độ link, nhìn là thấy trục mà màu vẫn là tốc độ, độ dày sợi vẫn là lưu lượng. `false` để tắt |
 | `language` | theo HA | `vi` hoặc `en` |
 
 ### Node
@@ -181,6 +182,7 @@ cố định (`1G`, `100M`, `2500`).
 | `speed` | Tốc độ link để tô màu khi cổng không báo |
 | `label` | `false` để ẩn nhãn lưu lượng |
 | `lldp` | `false` để tắt việc sửa cổng theo LLDP cho riêng cạnh này |
+| `backbone` | `true` / `false`: bật hoặc tắt ống bọc trục chính cho riêng cạnh này |
 
 *Xuống* luôn là chiều đi ra xa Internet. Cổng ghi ở `from_port`/`to_port` được ẩn khỏi cột thiết bị.
 

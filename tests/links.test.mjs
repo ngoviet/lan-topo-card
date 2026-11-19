@@ -160,3 +160,18 @@ test("resolveLinks: có kết quả cũ mà cổng khai sống lại → cấu h
   const back = { ...STATES, c1_e1: link(true), c2_e1: link(true) }; // cắm lại ether1, sfp2 vẫn có link
   assert.equal(resolveLinks(base, portsOf(back), { prev: first }), base);
 });
+
+test("isBackbone: cạnh router/switch ↔ router/switch là trục chính; ghi đè được", async () => {
+  const { isBackbone } = await import("../dist/lan-topo-card.js");
+  const topo = normalizeConfig({
+    nodes: [...CONFIG.nodes.map((n) => ({ ...n, type: n.type ?? (n.id === "ccr2004" ? "router" : "switch") }))],
+    edges: [...CONFIG.edges.slice(0, 4), { ...CONFIG.edges[4], backbone: false }, CONFIG.edges[5]],
+  });
+  const bb = (to, opt) => isBackbone(topo, topo.edges.find((e) => e.to === to), opt);
+  assert.equal(bb("modem"), false); // internet → modem
+  assert.equal(bb("ccr2004"), false); // modem → router
+  assert.equal(bb("crs310_1"), true); // router → switch
+  assert.equal(bb("crs310_2"), true); // switch → switch
+  assert.equal(bb("crs326"), false, "backbone: false trên cạnh");
+  assert.equal(bb("crs310_1", false), false, "backbone: false trên thẻ");
+});

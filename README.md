@@ -131,6 +131,7 @@ edges:
 | `warm_mbps`, `hot_mbps` | `10`, `50` | Port leaf cards glow amber above `warm_mbps` and pulse red above `hot_mbps` (total ↓+↑); each of them also has a traffic bar at the bottom, its length linear to ↓+↑ against the busiest port shown (↓ part in the port color, ↑ part in pink; `warm_mbps` is the floor of the scale). Every wire is two strands, ↓ and ↑, each thicker with that direction's traffic (log scale, 100 kbps → thinnest, 1 Gbps → thickest), along its whole run outside the cards; only the short piece inside a card, between the port cells, stays thin |
 | `motion` | `on` | `on`: flow dots always move (they carry information); `auto`: stop when the OS asks for reduced motion (Windows *Animation effects* off); `off`: never move. Dots pause while the card is scrolled out of view |
 | `lldp` | `true` | Fix stale edge ports from LLDP (see *Edge*); `false` always uses the YAML as written |
+| `backbone` | `auto` | Backbone links (both ends a `router` or `switch`) get a two-rail casing in the link-speed color, so the trunk stands out while color still means speed and strand width still means traffic. `false` turns it off |
 | `language` | HA language | `vi` or `en` |
 
 ### Node
@@ -183,6 +184,7 @@ ports:
 | `speed` | Link speed for the color when no port reports one |
 | `label` | `false` hides the traffic label |
 | `lldp` | `false` turns off the LLDP port fix for this edge |
+| `backbone` | `true` / `false` forces the backbone casing on or off for this edge |
 
 *Down* always means away from the Internet. Ports named in `from_port`/`to_port` are hidden from the device column.
 
