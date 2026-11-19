@@ -3163,6 +3163,10 @@ async function defineCard() {
         .node.core .name {
           font-weight: 700;
         }
+        /* Nền ngả màu tối đi độ tương phản của chữ phụ (#8ea3c2 chỉ còn ~4:1): sáng lên để giữ ≥ 5:1. */
+        .node.core .line:not(.up) {
+          color: #aabbd4;
+        }
         .node.core.expanded {
           box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 60%, transparent), 0 14px 28px -8px rgba(0, 0, 0, 0.8),
             0 0 30px -2px color-mix(in srgb, var(--c) 70%, transparent);
