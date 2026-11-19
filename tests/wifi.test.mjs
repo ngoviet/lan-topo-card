@@ -54,3 +54,54 @@ test("groupClients: lọc SSID / băng tần, nhóm theo băng", () => {
   assert.deepEqual(groupClients(clients, { band: "5", by: "band" }).map((x) => x.name), ["5 GHz"]);
   assert.deepEqual(groupClients([], {}), []);
 });
+
+// ── Chi tiết 5 phút (aruba_instant_ha ≥ 0.2.0): mọi trường tuỳ chọn ──
+import { clientBadges, clientRetry, fmtUptime, fmtKbps, radioWarnings, shortAp, strings } from "../dist/lan-topo-card.js";
+
+test("clientBadges: integration cũ (không trường mới) ⇒ không huy hiệu", () => {
+  for (const c of clients) assert.deepEqual(clientBadges(c), []);
+  assert.deepEqual(clientBadges(undefined), []);
+});
+
+test("clientBadges: ưu tiên AP nghe to hơn, rồi retry, tối đa 2", () => {
+  const c = { louder_ap: "Aruba T2", louder_gain: 25, retry_5m: 54, retry_pct: 10, stuck_24: true };
+  assert.deepEqual(clientBadges(c), [
+    { kind: "louder", ap: "T2", gain: 25 },
+    { kind: "retry", pct: 54 },
+  ]);
+  assert.deepEqual(clientBadges({ retry_pct: 29.9 }), []);
+  assert.deepEqual(clientBadges({ retry_pct: 30, stuck_24: true }), [{ kind: "retry", pct: 30 }, { kind: "stuck" }]);
+});
+
+test("clientRetry: 5 phút trước, từ lúc nối sau, rỗng ⇒ null", () => {
+  assert.equal(clientRetry({ retry_5m: 12, retry_pct: 40 }), 12);
+  assert.equal(clientRetry({ retry_pct: 40 }), 40);
+  assert.equal(clientRetry({}), null);
+  assert.equal(clientRetry({ retry_5m: null }), null);
+});
+
+test("fmtUptime / fmtKbps", () => {
+  assert.equal(fmtUptime(3 * 86400 + 17 * 3600 + 5, { d: "n", h: "g", m: "p" }), "3n 17g");
+  assert.equal(fmtUptime(2 * 3600 + 5 * 60), "2h 5m");
+  assert.equal(fmtUptime(undefined), null);
+  assert.equal(fmtKbps(850.4), "850 kb/s");
+  assert.equal(fmtKbps(1234), "1.2 Mb/s");
+  assert.equal(fmtKbps(25000), "25 Mb/s");
+  assert.equal(fmtKbps(undefined), null);
+});
+
+test("radioWarnings: reset > 2/ngày, retry ≥ 15%", () => {
+  assert.deepEqual(radioWarnings({ resets_per_day: 3.9, retry_5m: 4 }), [{ kind: "resets", value: 3.9 }]);
+  assert.deepEqual(radioWarnings({ resets_per_day: 1.1, retry_pct: 16 }), [{ kind: "retry", value: 16 }]);
+  assert.deepEqual(radioWarnings({}), []);
+});
+
+test("chuỗi cảnh báo: mọi mã integration gửi đều có chữ ở cả vi và en", () => {
+  const codes = ["radio_resets", "radio_retry", "open_network", "louder_ap", "stuck_24", "detail_failed"];
+  const a = { ap: "Aruba T1", band: "2.4", value: 3.9, ssid: "Setup", channel: 6 };
+  for (const lang of ["vi", "en"]) {
+    const T = strings(lang);
+    for (const code of codes) assert.match(T.alerts[code](a), /\S/, `${lang} ${code}`);
+  }
+  assert.equal(shortAp("Aruba T3"), "T3");
+});
