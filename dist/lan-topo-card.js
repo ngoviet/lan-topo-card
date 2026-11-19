@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.8.3";
+export const VERSION = "0.8.4";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -298,6 +298,12 @@ export function discoverAttrPorts({ entities, devices, states }, opts) {
   } else {
     const prefix = slugify(opts.device);
     ids = Object.keys(states || {}).filter((id) => id.split(".")[1]?.startsWith(`${prefix}_`));
+    if (entities) {
+      // Có registry: chỉ nhận khi mọi entity có cổng khớp tiền tố cùng thuộc MỘT device —
+      // tiền tố "crs310_" nuốt luôn "crs310_2_*" của switch khác thì trộn cổng hai máy → bỏ.
+      const owners = new Set(ids.filter((id) => states[id]?.attributes?.port).map((id) => entities[id]?.device_id ?? null));
+      if (owners.size > 1) ids = [];
+    }
   }
   const ports = new Map();
   for (const id of ids) {
@@ -377,6 +383,8 @@ export function poeCount(node, ports) {
   }).length;
 }
 
+const usableIp = (ip) => (ip && !/^fe80:/i.test(String(ip)) ? String(ip) : null);
+
 /** Đọc giá trị hiện tại của 1 cổng. rx = switch nhận vào cổng, tx = switch gửi ra cổng. */
 export function readPort(states, def) {
   const linkSt = stateOf(states, def.link);
@@ -411,8 +419,11 @@ export function readPort(states, def) {
     comment: linkSt?.attributes?.comment || null,
     // Thiết bị đang cắm (routeros_ha: LLDP neighbor / DHCP lease có comment) — tên tự động.
     device: linkSt?.attributes?.device || null,
-    deviceIp: linkSt?.attributes?.device_ip || null,
+    // IPv6 link-local (fe80::, LLDP của switch) không dùng để truy cập được → không hiện.
+    deviceIp: usableIp(linkSt?.attributes?.device_ip),
     deviceMac: linkSt?.attributes?.device_mac || null,
+    // "lldp" | "dhcp" | null — chỉ tên từ LLDP mới đủ tin để nối dây giữa hai node.
+    deviceSource: linkSt?.attributes?.device_source || null,
     linkDowns: Number.isFinite(parseFloat(linkSt?.attributes?.link_downs)) ? parseFloat(linkSt.attributes.link_downs) : null,
     entity: def.info || def.rx || def.link || def.tx || null,
     entities: [def.link, def.rx, def.tx, def.poe, speedEntity ? def.speed : null].filter(Boolean),
@@ -456,6 +467,85 @@ export function edgeTraffic(edge, portsByNode, states) {
   const linkedAll = [...parentPorts, ...childPorts].map((p) => p.linked);
   const linked = linkedAll.length ? linkedAll.some((v) => v !== false) : true;
   return { down, up, speedMbps: speed, linked, entities };
+}
+
+/** Tên mà LLDP của node khác có thể gọi node này: name, ports.device, id (không phân biệt hoa thường). */
+function nodeAliases(node) {
+  return new Set([node.name, node.ports?.device, node.id].filter(Boolean).map((s) => String(s).toLowerCase()));
+}
+
+/** Cổng của `ports` đang có link và LLDP báo đối diện là `peer`. */
+function lldpPortsTo(ports, peer) {
+  const names = nodeAliases(peer);
+  return (ports || [])
+    .filter((p) => p.linked === true && p.deviceSource === "lldp" && p.device && names.has(String(p.device).toLowerCase()))
+    .map((p) => p.name);
+}
+
+const sameList = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+
+/**
+ * Sửa cổng của cạnh theo LLDP khi cấu hình đã cũ (vd đổi dây từ ether1 sang sfp-sfpplus2).
+ * Một đầu chỉ được đổi khi: cạnh không có `down`/`up` tay, không quá một cổng mỗi đầu, các cổng khai
+ * ở đầu đó đều mất link (hoặc chưa khai), và LLDP chỉ đúng một cổng đang có link thấy node bên kia.
+ * Đầu còn lại không có bằng chứng mà cổng khai đã mất link thì bỏ cổng (dây vào cạnh thẻ).
+ * Kết quả lần trước (`prev`) được giữ khi cổng của nó vẫn có link, để LLDP chập chờn không làm dây nhảy.
+ * Không có gì đổi thì trả lại đúng `prev` hoặc `topo` (giữ nguyên object → bố cục không phải tính lại).
+ * `enabled: false` hoặc `lldp: false` trên cạnh để tắt.
+ */
+export function resolveLinks(topo, portsByNode, { enabled = true, prev = null } = {}) {
+  if (!enabled) return topo;
+  const linkedNames = (id, names) => {
+    const ports = portsByNode.get(id) || [];
+    return names.every((n) => ports.find((p) => p.name === n)?.linked === true);
+  };
+  const allDown = (id, names) => {
+    const ports = portsByNode.get(id) || [];
+    return names.every((n) => ports.find((p) => p.name === n)?.linked === false);
+  };
+  let changed = false;
+  const edges = topo.edges.map((e, i) => {
+    if (e.lldp === false || e.down.length || e.up.length) return e;
+    if (!portsByNode.has(e.from) || !portsByNode.has(e.to)) return e;
+    if (e.fromPorts.length > 1 || e.toPorts.length > 1) return e;
+    const old = prev?.edges?.[i];
+    // Chỉ giữ kết quả cũ khi cấu hình vẫn còn "chết": cổng khai sống lại thì cấu hình thắng ngay.
+    const stale = (id, names) => !names.length || allDown(id, names);
+    if (
+      old?.autoPorts &&
+      old.key === e.key &&
+      stale(e.from, e.fromPorts) &&
+      stale(e.to, e.toPorts) &&
+      linkedNames(e.from, old.fromPorts) &&
+      linkedNames(e.to, old.toPorts)
+    ) {
+      if (old.fromPorts.length || old.toPorts.length) {
+        changed = true;
+        return old;
+      }
+    }
+    const pick = (id, peerId, cur) => {
+      if (cur.length && !allDown(id, cur)) return { ports: cur, sure: true };
+      const found = lldpPortsTo(portsByNode.get(id), topo.nodes.get(peerId));
+      if (found.length === 1) return { ports: found, sure: true, auto: true };
+      return { ports: cur, sure: false, ambiguous: found.length > 1 };
+    };
+    const a = pick(e.from, e.to, e.fromPorts);
+    const b = pick(e.to, e.from, e.toPorts);
+    if (!a.auto && !b.auto) return e;
+    // Một đầu đã có bằng chứng LLDP, đầu kia không có gì mà cổng khai đã chết → bỏ cổng đó.
+    const fromPorts = a.auto || a.sure || a.ambiguous ? a.ports : [];
+    const toPorts = b.auto || b.sure || b.ambiguous ? b.ports : [];
+    if (sameList(fromPorts, e.fromPorts) && sameList(toPorts, e.toPorts)) return e;
+    changed = true;
+    if (old?.autoPorts && old.key === e.key && sameList(old.fromPorts, fromPorts) && sameList(old.toPorts, toPorts)) return old;
+    return { ...e, fromPorts, toPorts, autoPorts: true };
+  });
+  if (!changed) return topo;
+  if (prev && prev.edges.length === edges.length && prev.edges.every((e, i) => e === edges[i]) && prev.nodes === topo.nodes) return prev;
+  const children = new Map([...topo.nodes.keys()].map((k) => [k, []]));
+  for (const e of edges) children.get(e.from).push(e);
+  return { ...topo, edges, children };
 }
 
 /** Cổng hiện trong cột thiết bị: có link hoặc có lưu lượng, không phải cổng nối switch khác. */
@@ -2012,6 +2102,7 @@ async function defineCard() {
 
     setConfig(config) {
       const topo = normalizeConfig(config);
+      this._baseTopo = topo;
       this._topo = topo;
       try {
         const saved = localStorage.getItem(this._viewKey(config));
@@ -2049,11 +2140,18 @@ async function defineCard() {
       super.connectedCallback();
       this._ro = new ResizeObserver(() => this._measure());
       this._ro.observe(this);
+      // Thẻ khuất khỏi màn hình (cuộn đi, tab khác của dashboard) → dừng hạt chạy: ~120 sợi
+      // stroke-dashoffset không chạy được trên GPU, đỡ CPU/pin cho tablet treo tường.
+      if (typeof IntersectionObserver === "function") {
+        this._io = new IntersectionObserver((list) => this.toggleAttribute("offscreen", !list[list.length - 1].isIntersecting));
+        this._io.observe(this);
+      }
     }
 
     disconnectedCallback() {
       super.disconnectedCallback();
       this._ro?.disconnect();
+      this._io?.disconnect();
     }
 
     _measure() {
@@ -2107,6 +2205,9 @@ async function defineCard() {
         ports.forEach((p) => p.entities.forEach((e) => this._tracked.add(e)));
         portsByNode.set(id, ports);
       }
+      // Cổng nối giữa hai node: theo YAML, sửa theo LLDP khi YAML đã cũ (đổi dây). Mọi thứ phía sau
+      // (cổng ẩn, dây, mũi tên uplink, viền đỏ "phải có link") đọc this._topo nên đi theo luôn.
+      this._topo = resolveLinks(this._baseTopo, portsByNode, { enabled: cfg.lldp !== false, prev: this._topo });
       const leaves = new Map();
       for (const [id, ports] of portsByNode) {
         const node = this._topo.nodes.get(id);
@@ -2469,7 +2570,8 @@ async function defineCard() {
       const color = speedColor(p.speedMbps, p.linked !== false);
       // Tên: YAML port_names → thiết bị integration tìm được → comment của cổng → tên cổng.
       const label = meta.name || p.device || p.comment || p.name;
-      const ip = meta.ip || (meta.name ? null : p.deviceIp);
+      // IP ghi tay thắng; không có thì lấy IP integration báo (DHCP lease) — kể cả khi tên ghi tay.
+      const ip = meta.ip || p.deviceIp;
       // Tốc độ link là chip riêng cạnh tên (không bị cắt "…" như dòng phụ).
       const chip = p.linked ? speedLabel(p.speedMbps) : T.no_link;
       const sub = [label !== p.name ? p.name : null, ip].filter(Boolean).join(" · ");
@@ -2928,6 +3030,10 @@ async function defineCard() {
            hành bật "giảm chuyển động". motion: auto = tôn trọng thiết lập đó, motion: off = tắt hẳn. */
         :host([motion="off"]) path.flow {
           animation: none !important;
+        }
+        :host([offscreen]) path.flow,
+        :host([offscreen]) .port.heat2 {
+          animation-play-state: paused;
         }
         @media (prefers-reduced-motion: reduce) {
           :host([motion="auto"]) path.flow {

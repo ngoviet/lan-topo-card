@@ -262,3 +262,26 @@ test("readPort: sensor tốc độ báo -1 (chưa biết) → speedMbps null, kh
   assert.equal(p.speedMbps, null);
   assert.equal(p.linked, false);
 });
+
+test("adapter routeros: tiền tố khớp entity của hai device (crs310_ và crs310_2_) → không trộn cổng", () => {
+  const s = {
+    "binary_sensor.crs310_ether1_link": st("on", { port: "ether1" }),
+    "binary_sensor.crs310_2_ether1_link": st("off", { port: "ether1" }),
+  };
+  const devices = { d1: { id: "d1", name: "CRS310-1" }, d2: { id: "d2", name: "CRS310-2" } };
+  const entities = {
+    "binary_sensor.crs310_ether1_link": { entity_id: "binary_sensor.crs310_ether1_link", device_id: "d1", platform: "routeros_ha" },
+    "binary_sensor.crs310_2_ether1_link": { entity_id: "binary_sensor.crs310_2_ether1_link", device_id: "d2", platform: "routeros_ha" },
+  };
+  assert.deepEqual(discoverAttrPorts({ entities, devices, states: s }, { device: "CRS310" }), []);
+  assert.deepEqual(
+    discoverAttrPorts({ entities, devices, states: s }, { device: "CRS310-2" }).map((p) => p.link),
+    ["binary_sensor.crs310_2_ether1_link"],
+  );
+  // Device đổi tên trong HA (name_by_user) nhưng tiền tố chỉ thuộc một device → vẫn dò được như trước.
+  const renamed = { d1: { id: "d1", name: "CRS310-1", name_by_user: "Switch tầng 2" }, d2: devices.d2 };
+  assert.deepEqual(
+    discoverAttrPorts({ entities, devices: renamed, states: s }, { device: "CRS310_2" }).map((p) => p.link),
+    ["binary_sensor.crs310_2_ether1_link"],
+  );
+});

@@ -129,7 +129,8 @@ edges:
 | `legend` | `true` | Show the color legend |
 | `top` | `5` | "Top talkers" table under the diagram: devices ranked by ↓+↑ traffic (bars proportional to the top device); `0` or `false` hides it |
 | `warm_mbps`, `hot_mbps` | `10`, `50` | Port leaf cards glow amber above `warm_mbps` and pulse red above `hot_mbps` (total ↓+↑); each of them also has a traffic bar at the bottom, its length linear to ↓+↑ against the busiest port shown (↓ part in the port color, ↑ part in pink; `warm_mbps` is the floor of the scale). Every wire is two strands, ↓ and ↑, each thicker with that direction's traffic (log scale, 100 kbps → thinnest, 1 Gbps → thickest), along its whole run outside the cards; only the short piece inside a card, between the port cells, stays thin |
-| `motion` | `on` | `on`: flow dots always move (they carry information); `auto`: stop when the OS asks for reduced motion (Windows *Animation effects* off); `off`: never move |
+| `motion` | `on` | `on`: flow dots always move (they carry information); `auto`: stop when the OS asks for reduced motion (Windows *Animation effects* off); `off`: never move. Dots pause while the card is scrolled out of view |
+| `lldp` | `true` | Fix stale edge ports from LLDP (see *Edge*); `false` always uses the YAML as written |
 | `language` | HA language | `vi` or `en` |
 
 ### Node
@@ -155,7 +156,7 @@ edges:
 
 **`routeros`**: `{ adapter: routeros, device: <device name or id>, platform: routeros_ha }`.
 Uses the device and entity registry; entities with a `port` attribute become ports. With several devices of the same
-name, the one that has entities of `platform` wins. Set `platform: null` to accept any integration.
+name, the one that has entities of `platform` wins. Set `platform: null` to accept any integration. With no device of that name the card falls back to the entity id prefix, but only when every matching port entity belongs to one device (a prefix like `crs310_` would also swallow `crs310_2_*`).
 
 **`netgear_plus`**: `{ adapter: netgear_plus, prefix: gs108pe }` reads `binary_sensor.<prefix>_port_N_status`,
 `sensor.<prefix>_port_N_link_speed`, `_receiving`, `_sending` and `switch.<prefix>_port_N` (PoE, read only).
@@ -181,8 +182,11 @@ ports:
 | `down`, `up` | Explicit sensors (summed), override the ports |
 | `speed` | Link speed for the color when no port reports one |
 | `label` | `false` hides the traffic label |
+| `lldp` | `false` turns off the LLDP port fix for this edge |
 
 *Down* always means away from the Internet. Ports named in `from_port`/`to_port` are hidden from the device column.
+
+**Ports follow LLDP when the YAML is stale.** Re-cable two switches (say from `ether1` to `sfp-sfpplus2`) and the card follows: when the edge's ports on one side are all down (or none is given) and exactly one linked port on that side has an LLDP neighbour named like the other node (`name`, `ports.device` or `id`), the wire moves to that port. Only `device_source: lldp` counts, never a DHCP comment. Ports that still have link always win, edges with manual `down`/`up` or several ports per side are left alone, an ambiguous match changes nothing, and a fixed edge stays put while its ports keep link even if LLDP blinks. Update the YAML anyway so the traffic history matches.
 
 Full detail draws one wire per port listed in `from_port`/`to_port`. An edge with several ports becomes several wires, each with its own port's traffic; an end with no port goes to the edge of the card. When a node is expanded, the wire to each end device also starts at its exact port cell, and devices are ordered by cell position so wires do not cross. Hover a port cell or a wire to highlight the whole path, click a cell for port details. Hub and Arc views show the strip as small status dots (no hover or click); Cards and List use larger cells for touch.
 
