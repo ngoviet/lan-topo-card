@@ -216,6 +216,8 @@ devices:
 
 ## LAN Wi-Fi Card
 
+> **Đã chuyển (20/11/2026):** thẻ Wi-Fi giờ đi kèm integration [aruba_instant_ha](https://github.com/ngoviet/aruba_instant_ha) ≥ 0.3.0 với tên `custom:aruba-wifi-card` — cài integration là có thẻ, không cần resource, luôn cùng phiên bản. `custom:lan-wifi-card` ở đây vẫn chạy một thời gian (in cảnh báo trong console) rồi sẽ bị gỡ; hãy đổi dashboard.
+
 **`custom:lan-wifi-card`** liệt kê thiết bị Wi-Fi theo từng AP từ integration
 [aruba_instant_ha](https://github.com/ngoviet/aruba_instant_ha): vạch sóng tô màu theo chất lượng, băng tần
 (2,4 / 5 GHz), SSID, IP, tốc độ PHY, SNR. Mỗi AP hiện các radio (kênh + % thời gian kênh bận) và cảnh báo khi hai AP

@@ -219,6 +219,8 @@ devices:
 
 ## LAN Wi-Fi Card
 
+> **Moved (2026-11-20):** the Wi-Fi card now ships with the [aruba_instant_ha](https://github.com/ngoviet/aruba_instant_ha) integration ≥ 0.3.0 as `custom:aruba-wifi-card` — install the integration and the card is there, no resource needed, always the matching version. `custom:lan-wifi-card` keeps working here for a while (with a console warning) and will be removed later; switch your dashboards.
+
 **`custom:lan-wifi-card`** lists Wi-Fi clients per access point from the
 [aruba_instant_ha](https://github.com/ngoviet/aruba_instant_ha) integration: signal bars colored by quality,
 band (2.4 / 5 GHz), SSID, IP, PHY speed, SNR. Each AP shows its radios (channel + channel busy %) and warns when

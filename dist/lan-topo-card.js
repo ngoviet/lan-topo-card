@@ -10,7 +10,7 @@
  * MIT © ngoviet — https://github.com/ngoviet/lan-topo-card
  */
 
-export const VERSION = "0.11.0";
+export const VERSION = "0.11.1";
 
 const ENTITY_RE = /^[a-z_]+\.[a-z0-9_]+$/;
 
@@ -4068,6 +4068,12 @@ async function defineCard() {
 
     setConfig(config) {
       if (!config || !config.entity) throw new Error("lan-wifi-card: cần `entity` (sensor tổng thiết bị Wi-Fi)");
+      // Đã chuyển: thẻ Wi-Fi đi kèm integration aruba_instant_ha ≥ 0.3.0 (`custom:aruba-wifi-card`). Tên cũ vẫn
+      // chạy ở đây một thời gian; báo một lần trong console để người dùng đổi dashboard.
+      if (!LanWifiCard._warned) {
+        LanWifiCard._warned = true;
+        console.warn("lan-wifi-card đã chuyển sang integration aruba_instant_ha ≥ 0.3.0: đổi dashboard sang `type: custom:aruba-wifi-card` (lan-wifi-card sẽ bị gỡ ở bản sau).");
+      }
       this._config = config;
       this._ssid = config.ssid ?? null;
       this._band = config.band ?? null;
